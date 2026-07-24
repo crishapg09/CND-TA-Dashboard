@@ -301,8 +301,8 @@ loc_leadcount = {L: len({c['lead'] for c in flowcases if loc_key(c) == L and c['
 loc_area = {L: defaultdict(Counter) for L in LOC_ORDER}
 for c in flowcases:
     area = c['area']                            # lead's thematic area, or '(unassigned lead)'
-    staff = c['lead'] or '(unassigned lead)'
-    loc_area[loc_key(c)][area][staff] += 1
+    who = c['lead'] or '(unassigned lead)'
+    loc_area[loc_key(c)][area][who] += 1
 
 loc_tabs = ''
 for L in LOC_ORDER:
@@ -310,35 +310,72 @@ for L in LOC_ORDER:
     loc_tabs += (f'<button class="loctab{on}" data-loc="{slug(L)}" onclick="showLoc(\'{slug(L)}\')">'
                  f'<span class="ltdot" style="background:{LOC_COLOR[L]}"></span>{esc(L)} <b>{loc_total.get(L, 0)}</b></button>')
 
+# categorical palette — one hue per thematic area within a location's flow
+AREA_CAT = ['#0B6FA4', '#2E7D5B', '#7A4FB0', '#C87A2E', '#1CABE2', '#C0453F',
+            '#4CA576', '#E0A21E', '#5B7186', '#8E44AD', '#16A085', '#0B5A8A']
+
+def build_loc_sankey(areas):
+    """areas: list of (area_name, Counter(staff->count)) -> Sankey SVG (area -> staff)."""
+    total = sum(sum(c.values()) for _, c in areas) or 1
+    nstaff = sum(len(c) for _, c in areas)
+    nareas = len(areas)
+    gap = 9.0
+    unit = min(16.0, 520.0 / total)
+    left_h = total * unit + (nareas - 1) * gap
+    right_h = total * unit + (nstaff - 1) * gap
+    core = max(left_h, right_h)
+    H = core + 44
+    xL, xLb, xR = 250.0, 263.0, 717.0
+    area_y, cur = {}, 22 + (core - left_h) / 2
+    for name, c in areas:
+        h = sum(c.values()) * unit
+        area_y[name] = [cur, h, cur]           # top, height, link-cursor
+        cur += h + gap
+    staff_y, order, cur = {}, [], 22 + (core - right_h) / 2
+    for name, c in areas:
+        for st, n in c.most_common():
+            h = n * unit
+            staff_y[(name, st)] = (cur, h)
+            order.append((name, st, n))
+            cur += h + gap
+    parts = []
+    for ai, (name, c) in enumerate(areas):
+        col = AREA_CAT[ai % len(AREA_CAT)]
+        top, h, _ = area_y[name]
+        aname = 'No lead assigned' if name == '(unassigned lead)' else name
+        lab = aname if len(aname) <= 30 else aname[:29] + '…'
+        parts.append(f'<rect x="{xL}" y="{top:.1f}" width="13" height="{max(2, h):.1f}" rx="2.5" fill="{col}"/>')
+        parts.append(f'<text x="{xL-9:.0f}" y="{top+h/2+4:.1f}" text-anchor="end" class="sklbl">'
+                     f'<tspan class="skc">{sum(c.values())}</tspan> {esc(lab)}</text>')
+        for st, n in c.most_common():
+            t = n * unit
+            y0 = area_y[name][2] + t / 2; area_y[name][2] += t
+            sy = staff_y[(name, st)]; y1 = sy[0] + sy[1] / 2
+            parts.append(f'<path d="M{xLb} {y0:.1f} C{xLb+120} {y0:.1f} {xR-120} {y1:.1f} {xR} {y1:.1f}" '
+                         f'stroke="{col}" stroke-width="{max(1.2, t):.1f}" fill="none" opacity="0.38"/>')
+    for name, st, n in order:
+        ai = next(i for i, (an, _) in enumerate(areas) if an == name)
+        col = AREA_CAT[ai % len(AREA_CAT)]
+        top, h = staff_y[(name, st)]
+        stn = '— unassigned —' if st == '(unassigned lead)' else st
+        lab = stn if len(stn) <= 26 else stn[:25] + '…'
+        parts.append(f'<rect x="{xR}" y="{top:.1f}" width="13" height="{max(2, h):.1f}" rx="2.5" fill="{col}"/>')
+        parts.append(f'<text x="{xR+18:.0f}" y="{top+h/2+4:.1f}" text-anchor="start" class="sklbl">'
+                     f'{esc(lab)} <tspan class="skc">{n}</tspan></text>')
+    head = ('<div class="skhead"><span>Thematic area</span><span>Staff (TA lead)</span></div>')
+    return (head + f'<div class="skwrap"><svg viewBox="0 0 980 {H:.0f}" class="sksvg" '
+            f'preserveAspectRatio="xMidYMid meet">{"".join(parts)}</svg></div>')
+
 loc_panels = ''
 for L in LOC_ORDER:
-    col = LOC_COLOR[L]
     areas = sorted(loc_area[L].items(), key=lambda kv: -sum(kv[1].values()))
-    amax = max((sum(v.values()) for _, v in areas), default=1) or 1
     n_areas = len([a for a, _ in areas if a != '(unassigned lead)'])
-    blocks = ''
-    for area, staffc in areas:
-        atot = sum(staffc.values())
-        aname = 'No lead assigned' if area == '(unassigned lead)' else area
-        staff_rows = ''
-        for st, n in staffc.most_common():
-            stname = '— unassigned —' if st == '(unassigned lead)' else st
-            staff_rows += (f'<div class="strow"><div class="stname">{esc(stname)}</div>'
-                           f'<div class="track" style="height:8px;background:#EEF2F6;border-radius:4px">'
-                           f'<div style="height:100%;width:{100*n/amax:.1f}%;background:{col};opacity:.5;border-radius:4px"></div></div>'
-                           f'<div class="stn">{n}</div></div>')
-        blocks += (f'<div class="areablock"><div class="arow">'
-                   f'<div class="aname">{esc(aname)}</div>'
-                   f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px">'
-                   f'<div style="height:100%;width:{100*atot/amax:.1f}%;background:{col};border-radius:6px"></div></div>'
-                   f'<div class="acount" style="color:{col}">{atot}</div></div>'
-                   f'<div class="staffwrap">{staff_rows}</div></div>')
     disp = 'block' if L == LOC_ORDER[0] else 'none'
     nlead = loc_leadcount.get(L, 0)
     summary = (f'{nlead} TA lead{"s" if nlead != 1 else ""} · {n_areas} thematic area'
                f'{"s" if n_areas != 1 else ""} · {loc_total.get(L, 0)} requests led')
     loc_panels += (f'<div class="locpanel" data-loc="{slug(L)}" style="display:{disp}">'
-                   f'<div class="locsummary">{summary}</div>{blocks}</div>')
+                   f'<div class="locsummary">{summary}</div>{build_loc_sankey(areas)}</div>')
 
 # ======================================================================
 # DATA QUALITY (co = CO, all statuses)
@@ -567,15 +604,12 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .loctab.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
   .loctab.on b {{ color:#fff; }}
   .ltdot {{ width:9px; height:9px; border-radius:3px; }}
-  .locsummary {{ font-size:12.5px; color:#5B7186; margin-bottom:20px; }}
-  .areablock {{ margin-bottom:20px; }}
-  .arow {{ display:grid; grid-template-columns:minmax(150px,230px) 1fr 46px; gap:14px; align-items:center; }}
-  .aname {{ font-size:13px; font-weight:700; color:#0F2238; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-  .acount {{ text-align:right; font-weight:700; font-size:13.5px; font-variant-numeric:tabular-nums; }}
-  .staffwrap {{ margin:9px 0 0 16px; padding-left:14px; border-left:2px solid #EDF1F4; }}
-  .strow {{ display:grid; grid-template-columns:minmax(140px,210px) 1fr 34px; gap:14px; align-items:center; margin-bottom:6px; }}
-  .stname {{ font-size:12px; color:#43586B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-  .stn {{ text-align:right; font-size:12px; font-weight:700; color:#5B7186; font-variant-numeric:tabular-nums; }}
+  .locsummary {{ font-size:12.5px; color:#5B7186; margin-bottom:16px; }}
+  .skhead {{ display:flex; justify-content:space-between; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:#9AA7B2; font-weight:700; padding:0 6px 8px; }}
+  .skwrap {{ overflow-x:auto; }}
+  .sksvg {{ width:100%; min-width:760px; height:auto; display:block; }}
+  .sklbl {{ font:11.5px 'Helvetica Neue',Arial,sans-serif; fill:#43586B; }}
+  .skc {{ font-weight:700; fill:#0F2238; }}
 
   .hubgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }}
   .hubcard {{ border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; background:#FBFCFD; }}
