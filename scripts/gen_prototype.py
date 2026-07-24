@@ -384,11 +384,82 @@ def checkitems(items):
     return out
 
 # ======================================================================
+# FLOW MAP (origin duty station -> destination country) — Sankey-style
+# ======================================================================
+def build_flow_svg():
+    known = [c for c in PERF if c['loc']]
+    if not known:
+        return '<div class="muted">No duty-station data to map.</div>'
+    hubs = [h for h in HUB_ORDER if any(c['loc'] == h for c in known)]
+    for h in sorted({c['loc'] for c in known}):
+        if h not in hubs:
+            hubs.append(h)
+    dest_tot = Counter(c['office'] for c in known if c['office'])
+    topN = [d for d, _ in dest_tot.most_common(12)]
+    def dkey(c):
+        return c['office'] if c['office'] in topN else 'Other countries'
+    rights = list(topN)
+    if any(dkey(c) == 'Other countries' for c in known):
+        rights.append('Other countries')
+    total = len(known)
+    gap, total_h, top_pad = 8, 520, 26
+    left_avail = total_h - (len(hubs) - 1) * gap
+    right_avail = total_h - (len(rights) - 1) * gap
+    scale = min(left_avail, right_avail) / total
+    left_used = total * scale + (len(hubs) - 1) * gap
+    ly = top_pad + (total_h - left_used) / 2
+    hub_node = {}
+    for h in hubs:
+        cnt = sum(1 for x in known if x['loc'] == h)
+        hub_node[h] = [ly, cnt * scale, ly]
+        ly += cnt * scale + gap
+    right_used = total * scale + (len(rights) - 1) * gap
+    ry = top_pad + (total_h - right_used) / 2
+    right_node = {}
+    for r in rights:
+        cnt = sum(1 for x in known if dkey(x) == r)
+        right_node[r] = [ry, cnt * scale, ry]
+        ry += cnt * scale + gap
+    linkw = Counter((x['loc'], dkey(x)) for x in known)
+    x0, x1 = 262, 718
+    paths = ''
+    for h in hubs:
+        for r in rights:
+            w = linkw.get((h, r), 0)
+            if not w:
+                continue
+            t = w * scale
+            y0 = hub_node[h][2] + t / 2; hub_node[h][2] += t
+            y1 = right_node[r][2] + t / 2; right_node[r][2] += t
+            col = hub_color.get(h, '#5B7186')
+            paths += (f'<path d="M{x0} {y0:.1f} C{x0+120} {y0:.1f} {x1-120} {y1:.1f} {x1} {y1:.1f}" '
+                      f'stroke="{col}" stroke-width="{max(1.2, t):.1f}" fill="none" opacity="0.30"/>')
+    nodes = ''
+    for h in hubs:
+        top, hh, _ = hub_node[h]; col = hub_color.get(h, '#5B7186')
+        cnt = sum(1 for x in known if x['loc'] == h)
+        nodes += f'<rect x="250" y="{top:.1f}" width="12" height="{max(2, hh):.1f}" rx="2" fill="{col}"/>'
+        nodes += f'<text x="244" y="{top+hh/2+4:.1f}" text-anchor="end" class="fnl">{esc(h)} <tspan class="fnc">{cnt}</tspan></text>'
+    for r in rights:
+        top, rh, _ = right_node[r]; cnt = sum(1 for x in known if dkey(x) == r)
+        lab = r if len(r) <= 24 else r[:23] + '…'
+        nodes += f'<rect x="718" y="{top:.1f}" width="12" height="{max(2, rh):.1f}" rx="2" fill="#5B7186"/>'
+        nodes += f'<text x="736" y="{top+rh/2+4:.1f}" text-anchor="start" class="fnl"><tspan class="fnc">{cnt}</tspan> {esc(lab)}</text>'
+    head = ('<div class="flowmaphead"><span>Origin — TA-lead duty station</span>'
+            '<span>Destination — supported country</span></div>')
+    return (head + f'<div class="flowmapwrap"><svg viewBox="0 0 980 {total_h+2*top_pad}" '
+            f'class="flowsvg" preserveAspectRatio="xMidYMid meet">{paths}{nodes}</svg></div>')
+
+flow_svg = build_flow_svg()
+n_known = sum(1 for c in PERF if c['loc'])
+n_unknown = len(PERF) - n_known
+
+# ======================================================================
 # ASSEMBLE
 # ======================================================================
-def section(n, title, sub='', bg='#0B6FA4'):
-    subhtml = f'<div class="secsub">{sub}</div>' if sub else ''
-    return f'<div class="sec"><div class="secn" style="background:{bg}">{n}</div><div class="sectitle">{esc(title)}</div>{subhtml}</div>'
+def panelhead(title, sub=''):
+    s = f'<div class="ps">{sub}</div>' if sub else ''
+    return f'<div class="panelhead"><div class="pt">{esc(title)}</div>{s}</div>'
 
 PAGE = f'''<!-- @dsCard group="Dashboards" -->
 <!doctype html>
@@ -407,27 +478,33 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .h1 {{ font-size:27px; font-weight:700; letter-spacing:-.01em; margin-top:6px; }}
   .meta {{ text-align:right; font-size:12px; color:#5B7186; line-height:1.6; }} .meta b {{ color:#0F2238; }}
 
-  .viewtab {{ display:inline-flex; gap:8px; margin:6px 0 4px; }}
-  .viewtab .vt {{ font-size:13.5px; font-weight:700; padding:9px 20px; border-radius:9px; border:1px solid #16385C; }}
-  .vt.on {{ background:#16385C; color:#fff; }} .vt.off {{ background:#fff; color:#43586B; border-color:#D5DEE6; }}
+  /* top tabs */
+  .tabs {{ display:flex; gap:8px; margin:6px 0 20px; flex-wrap:wrap; position:sticky; top:0; z-index:20; background:#EDF1F4; padding:10px 0; }}
+  .tab {{ cursor:pointer; font-family:inherit; font-size:13.5px; font-weight:700; padding:10px 22px; border-radius:9px; border:1px solid #D5DEE6; background:#fff; color:#43586B; }}
+  .tab.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
 
-  .kpistrip {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-top:6px; }}
+  /* sub tabs */
+  .subtabs {{ display:flex; gap:4px; border-bottom:1px solid #DCE3EA; margin:24px 0 10px; flex-wrap:wrap; }}
+  .subtab {{ cursor:pointer; font-family:inherit; border:none; background:transparent; font-size:16px; font-weight:700; padding:11px 18px; color:#5B7186; border-bottom:3px solid transparent; margin-bottom:-1px; }}
+  .subtab.on {{ color:#0B5A8A; border-bottom-color:#0B5A8A; }}
+
+  .panelhead {{ margin:16px 0 14px; }}
+  .panelhead .pt {{ font-size:18px; font-weight:700; letter-spacing:-.01em; }}
+  .panelhead .ps {{ font-size:13px; color:#5B7186; margin-top:3px; }}
+
+  .kpistrip {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }}
   .kpi {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; }}
   .kpilabel {{ font-size:12px; color:#5B7186; font-weight:600; }}
   .kpival {{ font-size:32px; font-weight:700; letter-spacing:-.02em; line-height:1.1; margin:6px 0 4px; font-variant-numeric:tabular-nums; }}
   .kpisub {{ font-size:11.5px; color:#9AA7B2; }}
 
-  .sec {{ display:flex; align-items:center; gap:12px; margin:36px 0 14px; }}
-  .secn {{ width:26px; height:26px; border-radius:7px; color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none; }}
-  .sectitle {{ font-size:18px; font-weight:700; letter-spacing:-.01em; }}
-  .secsub {{ font-size:13px; color:#5B7186; margin-left:auto; text-align:right; }}
-
   .card {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:20px 22px; }}
   .cardtitle {{ font-size:13.5px; font-weight:700; margin-bottom:14px; }}
   .cardnote {{ font-size:12px; color:#8A98A6; line-height:1.55; margin-top:16px; border-top:1px solid #F1F4F7; padding-top:12px; }}
   .cardnote b, .cardnote strong {{ color:#5B7186; }}
-  .grid2 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:16px; align-items:start; }}
-  .grid3 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr)); gap:16px; align-items:start; }}
+  .grid2 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:16px; align-items:stretch; }}
+  .grid3 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr)); gap:16px; align-items:stretch; }}
+  .grid2 > *, .grid3 > * {{ height:100%; }}
   .mt16 {{ margin-top:16px; }}
 
   .legend {{ display:flex; flex-wrap:wrap; gap:10px 16px; margin:0 0 16px; }}
@@ -445,11 +522,11 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .areahead {{ display:grid; grid-template-columns:210px 1fr 44px 52px; gap:12px; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:#9AA7B2; font-weight:700; margin-bottom:10px; }}
   .areahead .r {{ text-align:right; }}
 
-  .hero {{ border-radius:10px; padding:20px 22px; min-height:216px; display:flex; flex-direction:column; justify-content:center; }}
+  .hero {{ border-radius:10px; padding:20px 22px; min-height:216px; height:100%; display:flex; flex-direction:column; justify-content:center; }}
   .herolabel {{ font-size:12px; letter-spacing:.06em; text-transform:uppercase; font-weight:700; }}
   .heroval {{ font-size:52px; font-weight:700; letter-spacing:-.03em; line-height:1; margin:10px 0 6px; font-variant-numeric:tabular-nums; }}
   .herobody {{ font-size:12.5px; line-height:1.5; }}
-  .minicard {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:20px 22px; min-height:216px; }}
+  .minicard {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:20px 22px; height:100%; }}
 
   .mchart {{ display:flex; align-items:flex-end; gap:14px; padding:0 6px; min-width:320px; }}
   .mcol {{ flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; }}
@@ -475,9 +552,15 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .pill {{ font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:5px; }}
   .tfoot {{ padding:12px 22px 14px; font-size:11.5px; color:#8A98A6; line-height:1.55; border-top:1px solid #F1F4F7; }}
 
+  /* flow map */
+  .flowmaphead {{ display:flex; justify-content:space-between; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:#9AA7B2; font-weight:700; padding:0 6px 8px; }}
+  .flowmapwrap {{ overflow-x:auto; }}
+  .flowsvg {{ width:100%; min-width:660px; height:auto; display:block; }}
+  .fnl {{ font:12px 'Helvetica Neue',Arial,sans-serif; fill:#43586B; }}
+  .fnc {{ fill:#0B6FA4; font-weight:700; }}
   .flowintro {{ font-size:13px; color:#5B7186; margin-bottom:16px; }} .flowintro b {{ color:#0B6FA4; font-size:15px; }}
   .hubgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }}
-  .hubcard {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; }}
+  .hubcard {{ border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; background:#FBFCFD; }}
   .hubhead {{ display:flex; align-items:center; gap:9px; }}
   .hubdot {{ width:12px; height:12px; border-radius:4px; }}
   .hubname {{ font-size:14.5px; font-weight:700; }}
@@ -487,21 +570,23 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .destchip {{ font-size:11.5px; color:#43586B; background:#F1F5F9; border:1px solid #E3E9EF; border-radius:999px; padding:4px 10px; }}
   .destchip b {{ color:#0B6FA4; }} .destchip.muted {{ color:#9AA7B2; background:transparent; }}
 
+  /* workload */
   .leadgrid {{ column-count:2; column-gap:40px; }} @media (max-width:820px) {{ .leadgrid {{ column-count:1; }} }}
   .leadrow {{ display:grid; grid-template-columns:190px 1fr 34px; gap:10px; align-items:center; break-inside:avoid; margin-bottom:11px; }}
   .leadlabel {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
   .leadname {{ font-size:12px; color:#43586B; overflow:hidden; text-overflow:ellipsis; }}
   .leadarea {{ font-size:10.5px; color:#9AA7B2; overflow:hidden; text-overflow:ellipsis; }}
   .ln {{ text-align:right; font-weight:700; font-size:12px; font-variant-numeric:tabular-nums; }}
-  .loadstat {{ display:flex; gap:12px; margin:16px 0 22px; }}
-  .loadbox {{ flex:1; border-radius:9px; padding:13px 16px; }}
+  .loadstat {{ display:flex; gap:12px; margin:16px 0 22px; flex-wrap:wrap; }}
+  .loadbox {{ flex:1; min-width:120px; border-radius:9px; padding:13px 16px; }}
   .loadlabel {{ font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; }}
   .loadval {{ font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.15; margin-top:3px; }}
   .loadsub {{ font-size:11px; }}
+  .divider {{ height:1px; background:#EDF1F4; margin:22px 0; }}
 
-  .sevlegend {{ display:flex; gap:16px; }}
+  .sevlegend {{ display:flex; gap:16px; flex-wrap:wrap; }}
   .sevbar {{ display:flex; height:30px; border-radius:6px; overflow:hidden; border:1px solid #E3E9EF; }}
-  .sevtags {{ display:flex; gap:24px; margin-top:10px; font-size:12.5px; }}
+  .sevtags {{ display:flex; gap:24px; margin-top:10px; font-size:12.5px; flex-wrap:wrap; }}
 
   .crow {{ display:grid; grid-template-columns:170px 1fr 44px; gap:12px; align-items:center; margin-bottom:10px; }}
   .clabel {{ font-size:12.5px; color:#43586B; font-weight:600; }}
@@ -531,144 +616,190 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     </div>
   </header>
 
-  <div class="viewtab"><span class="vt on">Performance</span><span class="vt off">Data Quality Review</span></div>
+  <div class="tabs">
+    <button class="tab on" data-top="perf" onclick="showTop('perf')">Performance</button>
+    <button class="tab" data-top="dq" onclick="showTop('dq')">Data Quality Review</button>
+  </div>
 
-  {perf_kpis}
+  <!-- ============ PERFORMANCE ============ -->
+  <div class="toppanel" id="perf" style="display:block">
+    {perf_kpis}
 
-  {section(1, 'Demand, delivery & status')}
-  <div class="card">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
-      <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
-      <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Opened</div><div class="lg"><span class="lgdot" style="background:#2E7D5B"></span>Completed</div></div>
+    <div class="subtabs">
+      <button class="subtab subtab-perf on" data-sub="demand" onclick="showSub('perf','demand')">Demand &amp; delivery</button>
+      <button class="subtab subtab-perf" data-sub="over" onclick="showSub('perf','over')">Overdue requests</button>
+      <button class="subtab subtab-perf" data-sub="flows" onclick="showSub('perf','flows')">Where support flows</button>
+      <button class="subtab subtab-perf" data-sub="work" onclick="showSub('perf','work')">Workload</button>
     </div>
-    <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
-    <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
-  </div>
 
-  <div class="grid3 mt16">
-    {hero('#EAF2F8', '#CFE0EE', '#0B6FA4', len(recent), '#0B6FA4', 'Received in last 30 days', 'new TA requests opened between 24 Jun and 24 Jul 2026.', '#3E6178')}
-    <div class="minicard"><div class="cardtitle">New by thematic area</div>{barlist(recent_area, '#0B6FA4', label_w=150)}</div>
-    <div class="minicard"><div class="cardtitle">On track by thematic area</div>{barlist(ontrack_area, '#3E9CD6', '#E4EFF6', label_w=150)}</div>
-  </div>
-
-  <div class="grid3 mt16">
-    {hero('#EAF2F8', '#CFE0EE', '#3E9CD6', onTrack, '#3E9CD6', 'Active &amp; on track', 'requests in progress whose expected completion date has not yet passed.', '#3E6178')}
-    <div class="minicard"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
-    <div class="minicard"><div class="cardtitle">Status legend</div><div style="margin-top:6px">{''.join(f'<div class="lg" style="margin-bottom:7px"><span class="lgdot" style="background:{SC[s]}"></span>{s}</div>' for s in STATUS_ORDER)}</div></div>
-  </div>
-
-  {req_table('Newest requests (last 30 days)', newest, 'Age (days)', '#0B6FA4')}
-
-  {section(2, 'Cycle time: opening, response & closure')}
-  {mgmt_kpis}
-  <div class="card mt16">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px"><div class="cardtitle" style="margin:0">Average response time after assignment, by thematic area</div><div class="muted">coming soon</div></div>
-    <div class="muted">This measure requires an assignment date, which is not yet captured at source. Space reserved here for when that data becomes available.</div>
-  </div>
-
-  {section(3, 'Overdue requests', bg='#C0453F')}
-  <div class="grid3">
-    {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(overdue), '#C0453F', 'Should be closed by now', 'active requests past their expected completion date but not yet at 100%.', '#8A5450')}
-    <div class="minicard"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
-    <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(ob, label_w=92)}</div></div>
-  </div>
-  <div class="card mt16">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
-      <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
-    <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
-    <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
-    <div class="cardnote"><strong>What this says:</strong> most overdue requests are less than 30 days late. The <b style="color:#C0453F">&gt;60 days</b> group needs its expected completion dates reviewed — targets are no longer credible and need re-planning or closure.</div>
-  </div>
-  <div class="card mt16">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
-      <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
-    {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
-  </div>
-  <div class="banner" style="background:rgba(224,162,30,0.12);border:1px solid rgba(224,162,30,0.35);color:#7A5B10"><strong style="color:#5B7186">What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
-  {req_table('Most overdue active requests', overdue[:14], 'Days over', '#C0453F', footer='Days over = today (24 Jul 2026) − the request’s Expected Completion Date, counting only active requests (below 100%) whose target date has already passed.')}
-
-  {section(4, 'Workload: thematic areas & staff', bg='#16385C')}
-  <div class="card">
-    <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
-    <div class="legend">{legend()}</div>
-    <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
-    {area_status_rows(groupby_area(PERF))}
-  </div>
-  <div class="grid2 mt16">
-    <div class="card">
-      <div class="cardtitle">Requests per TA lead — workload spread</div>
-      <div style="font-size:13px;color:#5B7186;margin-bottom:2px"><b style="color:#0B6FA4;font-size:15px">{len(lead_groups)}</b> TA leads assigned</div>
-      <div class="loadstat">
-        <div class="loadbox" style="background:#F6F8FA;border:1px solid #EDF1F4"><div class="loadlabel" style="color:#7A8C9C">Minimum</div><div class="loadval" style="color:#2E7D5B">{load_min}</div><div class="loadsub" style="color:#9AA7B2">lightest lead</div></div>
-        <div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Average</div><div class="loadval" style="color:#0B6FA4">{load_avg:.1f}</div><div class="loadsub" style="color:#7FA6BE">requests per lead</div></div>
-        <div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">Maximum</div><div class="loadval" style="color:#C0453F">{load_max}</div><div class="loadsub" style="color:#C79490">{esc(lead_groups[0][0])}</div></div>
+    <!-- demand -->
+    <div class="subpanel-perf" id="demand" style="display:block">
+      {panelhead('Demand, delivery & status', 'New requests coming in versus work completed and progressing.')}
+      <div class="card">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
+          <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
+          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Opened</div><div class="lg"><span class="lgdot" style="background:#2E7D5B"></span>Completed</div></div>
+        </div>
+        <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
+        <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
       </div>
-      <div style="position:relative;height:10px;border-radius:5px;margin:6px 4px 0;background:linear-gradient(90deg,#4CA576,#5BA3D0,#C0453F)"><div style="position:absolute;top:-5px;left:{pct(round(load_avg)-load_min, max(1,load_max-load_min))}%;transform:translateX(-50%);width:3px;height:20px;background:#0F2238;border-radius:2px"></div></div>
-      <div style="display:flex;justify-content:space-between;margin:9px 4px 0;font-size:11px;color:#7A8C9C"><span>Min {load_min}</span><span style="color:#0F2238;font-weight:700">Avg {load_avg:.1f}</span><span>Max {load_max}</span></div>
+      <div class="grid2 mt16">
+        {hero('#EAF2F8', '#CFE0EE', '#0B6FA4', len(recent), '#0B6FA4', 'Received in last 30 days', 'new TA requests opened between 24 Jun and 24 Jul 2026.', '#3E6178')}
+        <div class="card"><div class="cardtitle">New by thematic area</div>{barlist(recent_area, '#0B6FA4', label_w=170)}</div>
+      </div>
+      <div class="grid2 mt16">
+        {hero('#EAF2F8', '#CFE0EE', '#3E9CD6', onTrack, '#3E9CD6', 'Active &amp; on track', 'requests in progress whose expected completion date has not yet passed.', '#3E6178')}
+        <div class="card"><div class="cardtitle">On track by thematic area</div>{barlist(ontrack_area, '#3E9CD6', '#E4EFF6', label_w=170)}</div>
+      </div>
+      {req_table('Newest requests (last 30 days)', newest, 'Age (days)', '#0B6FA4')}
     </div>
-    <div class="card">
-      <div class="cardtitle">Busiest TA lead staff — coloured by status</div>
-      <div class="legend">{legend()}</div>
-      <div class="leadgrid">{lead_html}</div>
+
+    <!-- overdue -->
+    <div class="subpanel-perf" id="over" style="display:none">
+      {panelhead('Overdue requests', 'Active requests past their expected completion date but not yet at 100%.')}
+      <div class="grid3">
+        {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(overdue), '#C0453F', 'Should be closed by now', 'active requests past their expected completion date but not yet at 100%.', '#8A5450')}
+        <div class="minicard"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
+        <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(ob, label_w=92)}</div></div>
+      </div>
+      <div class="card mt16">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
+          <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
+        <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
+        <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
+        <div class="cardnote"><strong>What this says:</strong> most overdue requests are less than 30 days late. The <b style="color:#C0453F">&gt;60 days</b> group needs its expected completion dates reviewed — targets are no longer credible and need re-planning or closure.</div>
+      </div>
+      <div class="card mt16">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
+          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
+        {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
+      </div>
+      <div class="banner" style="background:rgba(224,162,30,0.12);border:1px solid rgba(224,162,30,0.35);color:#7A5B10"><strong style="color:#5B7186">What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
+      {req_table('Most overdue active requests', overdue[:14], 'Days over', '#C0453F', footer='Days over = today (24 Jul 2026) − the request’s Expected Completion Date, counting only active requests (below 100%) whose target date has already passed.')}
+    </div>
+
+    <!-- flows -->
+    <div class="subpanel-perf" id="flows" style="display:none">
+      {panelhead('Where support flows', 'From each request’s TA-lead duty station (origin) to the supported country office (destination).')}
+      <div class="card">
+        <div class="flowintro"><b>{n_hubs}</b> support hubs providing technical assistance to <b>{n_countries}</b> countries. The map traces {n_known} requests with a known duty station; {n_unknown} more have a lead whose duty station is not in the roster.</div>
+        {flow_svg}
+      </div>
+      <div class="card mt16">
+        <div class="cardtitle">Support hubs in detail</div>
+        <div class="hubgrid">{flow_html}</div>
+        <div class="cardnote"><strong>What this says:</strong> most nutrition TA is delivered remotely — leads in Nairobi, Bangkok, Brussels and Panama support country offices worldwide. Capturing the duty station for every lead would complete the origin picture.</div>
+      </div>
+    </div>
+
+    <!-- workload -->
+    <div class="subpanel-perf" id="work" style="display:none">
+      {panelhead('Workload: thematic areas & staff', 'How requests distribute across thematic areas and individual TA leads.')}
+      <div class="card">
+        <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
+        <div class="legend">{legend()}</div>
+        <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
+        {area_status_rows(groupby_area(PERF))}
+      </div>
+      <div class="card mt16">
+        <div class="cardtitle">Requests per TA lead — workload spread</div>
+        <div style="font-size:13px;color:#5B7186;margin-bottom:2px"><b style="color:#0B6FA4;font-size:15px">{len(lead_groups)}</b> TA leads assigned</div>
+        <div class="loadstat">
+          <div class="loadbox" style="background:#F6F8FA;border:1px solid #EDF1F4"><div class="loadlabel" style="color:#7A8C9C">Minimum</div><div class="loadval" style="color:#2E7D5B">{load_min}</div><div class="loadsub" style="color:#9AA7B2">lightest lead</div></div>
+          <div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Average</div><div class="loadval" style="color:#0B6FA4">{load_avg:.1f}</div><div class="loadsub" style="color:#7FA6BE">requests per lead</div></div>
+          <div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">Maximum</div><div class="loadval" style="color:#C0453F">{load_max}</div><div class="loadsub" style="color:#C79490">{esc(lead_groups[0][0])}</div></div>
+        </div>
+        <div style="position:relative;height:10px;border-radius:5px;margin:6px 4px 0;background:linear-gradient(90deg,#4CA576,#5BA3D0,#C0453F)"><div style="position:absolute;top:-5px;left:{pct(round(load_avg)-load_min, max(1,load_max-load_min))}%;transform:translateX(-50%);width:3px;height:20px;background:#0F2238;border-radius:2px"></div></div>
+        <div style="display:flex;justify-content:space-between;margin:9px 4px 0;font-size:11px;color:#7A8C9C"><span>Min {load_min}</span><span style="color:#0F2238;font-weight:700">Avg {load_avg:.1f}</span><span>Max {load_max}</span></div>
+        <div class="divider"></div>
+        <div class="cardtitle">Busiest TA lead staff — coloured by status</div>
+        <div class="legend">{legend()}</div>
+        <div class="leadgrid">{lead_html}</div>
+      </div>
     </div>
   </div>
 
-  {section(5, 'Where support flows', 'staff duty station → supported country', bg='#0B6FA4')}
-  <div class="card">
-    <div class="flowintro"><b>{n_hubs}</b> support hubs providing technical assistance to <b>{n_countries}</b> countries. Origin is each request's TA-lead duty station; destination is the supported country office.</div>
-    <div class="hubgrid">{flow_html}</div>
-    <div class="cardnote"><strong>What this says:</strong> most nutrition TA is delivered remotely — leads in Nairobi, Bangkok, Brussels and Panama support country offices worldwide. The <b>Not recorded</b> group is requests whose lead has no duty station in the roster; capturing that would complete the origin picture.</div>
-  </div>
+  <!-- ============ DATA QUALITY REVIEW ============ -->
+  <div class="toppanel" id="dq" style="display:none">
+    <div style="font-size:13px;color:#5B7186;margin:6px 0 14px;max-width:900px;line-height:1.5">Data quality read through the implementation-status lifecycle: <b>setup / in review</b> (Unassigned · 0% · 25%) where the concern is stalling, and <b>delivery / started</b> (50%+) where the concern is completeness &amp; consistency.</div>
+    {dq_kpis}
 
-  <div class="viewtab" style="margin-top:44px"><span class="vt off">Performance</span><span class="vt on">Data Quality Review</span></div>
-  <div style="font-size:13px;color:#5B7186;margin:10px 0 4px;max-width:900px;line-height:1.5">Data quality read through the implementation-status lifecycle: <b>setup / in review</b> (Unassigned · 0% · 25%) where the concern is stalling, and <b>delivery / started</b> (50%+) where the concern is completeness &amp; consistency.</div>
-  {dq_kpis}
+    <div class="subtabs">
+      <button class="subtab subtab-dq on" data-sub="recv" onclick="showSub('dq','recv')">Received &amp; in review</button>
+      <button class="subtab subtab-dq" data-sub="deliv" onclick="showSub('dq','deliv')">Started &amp; in delivery</button>
+      <button class="subtab subtab-dq" data-sub="close" onclick="showSub('dq','close')">Overdue &amp; closure</button>
+    </div>
 
-  {section(1, 'Received & in review', 'Unassigned · 0% · 25%', bg='#E0A21E')}
-  <div class="grid2">
-    <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
-    <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
-  </div>
-  <div class="grid3 mt16">
-    <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
-    <div class="card"><div class="cardtitle">Unassigned, by thematic area</div>{barlist(unassigned_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
-    <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
-  </div>
-  <div class="grid2 mt16">
-    <div class="card"><div class="cardtitle">Ready to advance</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#2E7D5B">{len(ready)}</div><div class="muted">of {len(at25)} requests at 25% have objectives, a lead and a target date</div></div></div>
-    <div class="card"><div class="cardtitle">Setup contradictions</div>{checkitems([(len(no_lead), 'Past assignment, but no TA lead', '0% or 25% means a lead should already be assigned', '#C0453F')])}</div>
-  </div>
-  <div class="card mt16"><div class="cardtitle">Stage transitions (days) — coming soon</div>
-    <div class="tcards">{''.join(f'<div class="tcard"><div class="tcardlabel">{l}</div><div class="tcardsub">{s}</div></div>' for l,s in [('Unassigned → 0%','days to assign a TA lead'),('0% → 25%','days to agree scope with the CO'),('25% → 50%','days to formally start delivery')])}</div>
-  </div>
-  {req_table('Most stalled setup requests', stalled_table_rows, 'Days stalled', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days stalled'])}
+    <!-- received -->
+    <div class="subpanel-dq" id="recv" style="display:block">
+      {panelhead('Received & in review', 'Unassigned · 0% · 25% — the concern here is stalling before delivery starts.')}
+      <div class="grid2">
+        <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
+        <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
+      </div>
+      <div class="grid3 mt16">
+        <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
+        <div class="card"><div class="cardtitle">Unassigned, by thematic area</div>{barlist(unassigned_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
+        <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
+      </div>
+      <div class="grid2 mt16">
+        <div class="card"><div class="cardtitle">Ready to advance</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#2E7D5B">{len(ready)}</div><div class="muted">of {len(at25)} requests at 25% have objectives, a lead and a target date</div></div></div>
+        <div class="card"><div class="cardtitle">Setup contradictions</div>{checkitems([(len(no_lead), 'Past assignment, but no TA lead', '0% or 25% means a lead should already be assigned', '#C0453F')])}</div>
+      </div>
+      <div class="card mt16"><div class="cardtitle">Stage transitions (days) — coming soon</div>
+        <div class="tcards">{''.join(f'<div class="tcard"><div class="tcardlabel">{l}</div><div class="tcardsub">{s}</div></div>' for l,s in [('Unassigned → 0%','days to assign a TA lead'),('0% → 25%','days to agree scope with the CO'),('25% → 50%','days to formally start delivery')])}</div>
+      </div>
+      {req_table('Most stalled setup requests', stalled_table_rows, 'Days stalled', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days stalled'])}
+    </div>
 
-  {section(2, 'Started & in delivery', '50%+ · completeness & consistency', bg='#0B6FA4')}
-  <div class="grid2">
-    <div class="card"><div class="cardtitle">Field completeness ({delN} in delivery)</div>{completeness_rows()}</div>
-    <div class="card"><div class="cardtitle">Delivery quality score</div>
-      <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px"><div class="score" style="color:{'#2E7D5B' if score>=80 else '#E0A21E' if score>=60 else '#C0453F'}">{score}%</div><div class="muted">{passN} of {delN} pass every check</div></div>
-      <div class="cardnote" style="margin-top:14px"><strong>What this says:</strong> a request passes when it has objectives, a lead, a target date, a description, a modality and a programme offer — and its completion target is not before its start.</div>
+    <!-- delivery -->
+    <div class="subpanel-dq" id="deliv" style="display:none">
+      {panelhead('Started & in delivery', '50%+ — the concern here is completeness and internal consistency of the record.')}
+      <div class="grid2">
+        <div class="card"><div class="cardtitle">Field completeness ({delN} in delivery)</div>{completeness_rows()}</div>
+        <div class="card"><div class="cardtitle">Delivery quality score</div>
+          <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px"><div class="score" style="color:{'#2E7D5B' if score>=80 else '#E0A21E' if score>=60 else '#C0453F'}">{score}%</div><div class="muted">{passN} of {delN} pass every check</div></div>
+          <div class="cardnote" style="margin-top:14px"><strong>What this says:</strong> a request passes when it has objectives, a lead, a target date, a description, a modality and a programme offer — and its completion target is not before its start.</div>
+        </div>
+      </div>
+      <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
+      <div class="grid2 mt16">
+        <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
+        <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
+      </div>
+      {req_table('Requests needing cleanup', flagRecords[:14], 'Flag', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Flag'])}
+    </div>
+
+    <!-- closure -->
+    <div class="subpanel-dq" id="close" style="display:none">
+      {panelhead('Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
+      <div class="grid3">
+        {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
+        <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(dq_ob, label_w=92)}</div></div>
+        <div class="minicard"><div class="cardtitle">At risk (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
+      </div>
+      <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
+      {req_table('Most overdue requests', dq_overdue[:14], 'Days over', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days over'])}
+      {req_table('Completed / discontinued but not closed', not_closed[:14], 'Outcome', '#E0A21E', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Outcome'])}
     </div>
   </div>
-  <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
-  <div class="grid2 mt16">
-    <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
-    <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
-  </div>
-  {req_table('Requests needing cleanup', flagRecords[:14], 'Flag', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Flag'])}
-
-  {section(3, 'Overdue, at-risk & closure', bg='#C0453F')}
-  <div class="grid3">
-    {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
-    <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(dq_ob, label_w=92)}</div></div>
-    <div class="minicard"><div class="cardtitle">At risk (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
-  </div>
-  <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
-  {req_table('Most overdue requests', dq_overdue[:14], 'Days over', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days over'])}
-  {req_table('Completed / discontinued but not closed', not_closed[:14], 'Outcome', '#E0A21E', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Outcome'])}
 
 </div>
+<script>
+function showTop(id){{
+  var ps=document.querySelectorAll('.toppanel');
+  for(var i=0;i<ps.length;i++){{ ps[i].style.display = ps[i].id===id ? 'block' : 'none'; }}
+  var ts=document.querySelectorAll('.tab');
+  for(var j=0;j<ts.length;j++){{ ts[j].className = 'tab' + (ts[j].getAttribute('data-top')===id ? ' on' : ''); }}
+  window.scrollTo(0,0);
+}}
+function showSub(g,id){{
+  var ps=document.querySelectorAll('.subpanel-'+g);
+  for(var i=0;i<ps.length;i++){{ ps[i].style.display = ps[i].id===id ? 'block' : 'none'; }}
+  var ts=document.querySelectorAll('.subtab-'+g);
+  for(var j=0;j<ts.length;j++){{ ts[j].className = 'subtab subtab-'+g + (ts[j].getAttribute('data-sub')===id ? ' on' : ''); }}
+}}
+</script>
 </body></html>'''
 
 with open(f'{OUT}/nutrition-ta-dashboard.html', 'w', encoding='utf-8') as f:
@@ -682,7 +813,8 @@ inner = PAGE[PAGE.index('<div class="wrap">'):PAGE.index('</body>')]
 with open(f'{OUT}/nutrition-ta-dashboard.artifact.html', 'w', encoding='utf-8') as f:
     f.write(style + '\n' + inner)
 print('wrote', f'{OUT}/nutrition-ta-dashboard.artifact.html')
+
 print('PERF universe:', len(PERF), '| active:', len(active), '| overdue:', len(overdue),
       '| onTrack:', onTrack, '| recent:', len(recent))
 print('DQ: setup', len(setupSet), 'delivery', delN, 'score', f'{score}%',
-      'flags', len(flagRecords), 'dq_overdue', len(dq_overdue), 'not_closed', len(not_closed), 'dup', dup)
+      'flags', len(flagRecords), 'dq_overdue', len(dq_overdue), 'not_closed', len(not_closed))
