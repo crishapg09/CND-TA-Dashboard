@@ -284,27 +284,61 @@ n_resolved = sum(hub_total[h] for h in ordered_hubs)
 n_blank = hub_total.get('(blank)', 0)
 n_unassigned = hub_total.get('(unassigned)', 0)
 
-# hub detail cards (chips are TA leads, matching the CND design)
-hub_cards = ''
-for hub in ordered_hubs:
-    lm = hub_leads[hub]; col = HUB_META[hub][3]
-    chips = ''.join(f'<span class="destchip">{esc(name)} <b>{n}</b></span>' for name, n in lm.most_common(6))
-    more = len(lm) - 6
-    if more > 0:
-        chips += f'<span class="destchip muted">+{more} more leads</span>'
-    hub_cards += (f'<div class="hubcard"><div class="hubhead"><span class="hubdot" style="background:{col}"></span>'
-                  f'<span class="hubname">{esc(hub)}</span><span class="hubcount" style="color:{col}">{hub_total[hub]}</span></div>'
-                  f'<div class="hubsub">{len(lm)} TA lead{"s" if len(lm)!=1 else ""} based here</div>'
-                  f'<div class="destwrap">{chips}</div></div>')
-# blank / no-origin card
-_blank_leads = hub_leads['(blank)']
-_blank_chips = ''.join(f'<span class="destchip">{esc(name)} <b>{n}</b></span>' for name, n in _blank_leads.most_common(6))
-if n_unassigned:
-    _blank_chips += f'<span class="destchip muted">(unassigned lead) {n_unassigned}</span>'
-hub_cards += (f'<div class="hubcard"><div class="hubhead"><span class="hubdot" style="background:#9AA7B2"></span>'
-              f'<span class="hubname">Duty station blank</span><span class="hubcount" style="color:#9AA7B2">{n_blank + n_unassigned}</span></div>'
-              f'<div class="hubsub">{len(_blank_leads)} lead{"s" if len(_blank_leads)!=1 else ""} with no location in the roster · plus {n_unassigned} requests with no lead</div>'
-              f'<div class="destwrap">{_blank_chips}</div></div>')
+# ---- interactive "by CoE location" graphic: tabs -> thematic areas -> staff ----
+import re
+def slug(x):
+    return re.sub(r'[^a-z0-9]+', '', x.lower()) or 'x'
+
+LOC_ORDER = ordered_hubs + ['Blank']            # Nairobi … New York, then Blank
+LOC_COLOR = {**{n: HUB_META[n][3] for n in HUB_META}, 'Blank': '#9AA7B2'}
+
+def loc_key(c):
+    return c['loc'] if c['loc'] in HUB_META else 'Blank'
+
+loc_total = Counter(loc_key(c) for c in flowcases)
+loc_leadcount = {L: len({c['lead'] for c in flowcases if loc_key(c) == L and c['lead']}) for L in LOC_ORDER}
+# location -> thematic area -> staff -> request count
+loc_area = {L: defaultdict(Counter) for L in LOC_ORDER}
+for c in flowcases:
+    area = c['area']                            # lead's thematic area, or '(unassigned lead)'
+    staff = c['lead'] or '(unassigned lead)'
+    loc_area[loc_key(c)][area][staff] += 1
+
+loc_tabs = ''
+for L in LOC_ORDER:
+    on = ' on' if L == LOC_ORDER[0] else ''
+    loc_tabs += (f'<button class="loctab{on}" data-loc="{slug(L)}" onclick="showLoc(\'{slug(L)}\')">'
+                 f'<span class="ltdot" style="background:{LOC_COLOR[L]}"></span>{esc(L)} <b>{loc_total.get(L, 0)}</b></button>')
+
+loc_panels = ''
+for L in LOC_ORDER:
+    col = LOC_COLOR[L]
+    areas = sorted(loc_area[L].items(), key=lambda kv: -sum(kv[1].values()))
+    amax = max((sum(v.values()) for _, v in areas), default=1) or 1
+    n_areas = len([a for a, _ in areas if a != '(unassigned lead)'])
+    blocks = ''
+    for area, staffc in areas:
+        atot = sum(staffc.values())
+        aname = 'No lead assigned' if area == '(unassigned lead)' else area
+        staff_rows = ''
+        for st, n in staffc.most_common():
+            stname = '— unassigned —' if st == '(unassigned lead)' else st
+            staff_rows += (f'<div class="strow"><div class="stname">{esc(stname)}</div>'
+                           f'<div class="track" style="height:8px;background:#EEF2F6;border-radius:4px">'
+                           f'<div style="height:100%;width:{100*n/amax:.1f}%;background:{col};opacity:.5;border-radius:4px"></div></div>'
+                           f'<div class="stn">{n}</div></div>')
+        blocks += (f'<div class="areablock"><div class="arow">'
+                   f'<div class="aname">{esc(aname)}</div>'
+                   f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px">'
+                   f'<div style="height:100%;width:{100*atot/amax:.1f}%;background:{col};border-radius:6px"></div></div>'
+                   f'<div class="acount" style="color:{col}">{atot}</div></div>'
+                   f'<div class="staffwrap">{staff_rows}</div></div>')
+    disp = 'block' if L == LOC_ORDER[0] else 'none'
+    nlead = loc_leadcount.get(L, 0)
+    summary = (f'{nlead} TA lead{"s" if nlead != 1 else ""} · {n_areas} thematic area'
+               f'{"s" if n_areas != 1 else ""} · {loc_total.get(L, 0)} requests led')
+    loc_panels += (f'<div class="locpanel" data-loc="{slug(L)}" style="display:{disp}">'
+                   f'<div class="locsummary">{summary}</div>{blocks}</div>')
 
 # ======================================================================
 # DATA QUALITY (co = CO, all statuses)
@@ -525,6 +559,24 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .wmlegend {{ display:flex; flex-wrap:wrap; gap:10px 20px; margin-top:14px; }}
   .lgswatch {{ width:16px; height:11px; border-radius:2px; background:#C6D8E8; display:inline-block; }}
   .flowintro {{ font-size:13px; color:#5B7186; margin-bottom:16px; }} .flowintro b {{ color:#0B6FA4; font-size:15px; }}
+
+  /* by-location graphic */
+  .loctabs {{ display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 20px; }}
+  .loctab {{ cursor:pointer; font-family:inherit; font-size:13px; font-weight:700; padding:9px 14px; border-radius:9px; border:1px solid #D5DEE6; background:#fff; color:#5B7186; display:inline-flex; align-items:center; gap:7px; }}
+  .loctab b {{ color:#0F2238; font-variant-numeric:tabular-nums; }}
+  .loctab.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
+  .loctab.on b {{ color:#fff; }}
+  .ltdot {{ width:9px; height:9px; border-radius:3px; }}
+  .locsummary {{ font-size:12.5px; color:#5B7186; margin-bottom:20px; }}
+  .areablock {{ margin-bottom:20px; }}
+  .arow {{ display:grid; grid-template-columns:minmax(150px,230px) 1fr 46px; gap:14px; align-items:center; }}
+  .aname {{ font-size:13px; font-weight:700; color:#0F2238; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .acount {{ text-align:right; font-weight:700; font-size:13.5px; font-variant-numeric:tabular-nums; }}
+  .staffwrap {{ margin:9px 0 0 16px; padding-left:14px; border-left:2px solid #EDF1F4; }}
+  .strow {{ display:grid; grid-template-columns:minmax(140px,210px) 1fr 34px; gap:14px; align-items:center; margin-bottom:6px; }}
+  .stname {{ font-size:12px; color:#43586B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .stn {{ text-align:right; font-size:12px; font-weight:700; color:#5B7186; font-variant-numeric:tabular-nums; }}
+
   .hubgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }}
   .hubcard {{ border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; background:#FBFCFD; }}
   .hubhead {{ display:flex; align-items:center; gap:9px; }}
@@ -657,8 +709,10 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         </div>
       </div>
       <div class="card mt16">
-        <div class="hubgrid">{hub_cards}</div>
-        <div class="cardnote"><strong>What this says:</strong> with the full staff roster joined in, origins resolve for <b>{n_resolved}</b> of {len(flowcases)} requests — up from 141. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)}), with <b>Bangkok</b> and <b>Amman</b> the next largest bases; almost all of it is delivered remotely to country offices in other regions. Only {n_blank + n_unassigned} requests still lack an origin.</div>
+        <div class="cardtitle">By Centre-of-Excellence location — thematic areas &amp; staff assigned</div>
+        <div class="loctabs">{loc_tabs}</div>
+        {loc_panels}
+        <div class="cardnote"><strong>What this says:</strong> pick a duty station to see how its TA load splits across thematic areas and which staff carry each area. With the full roster joined in, origins resolve for <b>{n_resolved}</b> of {len(flowcases)} requests — up from 141. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)}); only {n_blank + n_unassigned} requests still lack an origin.</div>
       </div>
     </div>
 
@@ -768,6 +822,12 @@ function showSub(g,id){{
   for(var i=0;i<ps.length;i++){{ ps[i].style.display = ps[i].id===id ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.subtab-'+g);
   for(var j=0;j<ts.length;j++){{ ts[j].className = 'subtab subtab-'+g + (ts[j].getAttribute('data-sub')===id ? ' on' : ''); }}
+}}
+function showLoc(id){{
+  var ps=document.querySelectorAll('.locpanel');
+  for(var i=0;i<ps.length;i++){{ ps[i].style.display = ps[i].getAttribute('data-loc')===id ? 'block' : 'none'; }}
+  var ts=document.querySelectorAll('.loctab');
+  for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-loc')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
 }}
 </script>
 </body></html>'''
