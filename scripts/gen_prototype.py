@@ -310,28 +310,28 @@ for L in LOC_ORDER:
     loc_tabs += (f'<button class="loctab{on}" data-loc="{slug(L)}" onclick="showLoc(\'{slug(L)}\')">'
                  f'<span class="ltdot" style="background:{LOC_COLOR[L]}"></span>{esc(L)} <b>{loc_total.get(L, 0)}</b></button>')
 
+def waffle(n, col, cls=''):
+    """A unit chart: one little square per TA request."""
+    sq = f'<span class="sq" style="background:{col}"></span>'
+    return f'<div class="waffle {cls}">{sq * n}</div>'
+
 def build_loc_bars(L, areas):
-    """Collapsible thematic-area bars; expand one to reveal its staff. All closed."""
+    """Collapsible thematic areas; each shows a square per TA. Expand for staff. All closed."""
     col = LOC_COLOR[L]
-    amax = max((sum(v.values()) for _, v in areas), default=1) or 1
     out = ''
     for area, staffc in areas:
         atot = sum(staffc.values())
         aname = 'No lead assigned' if area == '(unassigned lead)' else area
-        smax = max(staffc.values()) or 1
         staff_rows = ''
         for st, n in staffc.most_common():
             stname = '— unassigned —' if st == '(unassigned lead)' else st
             staff_rows += (f'<div class="strow"><div class="stname">{esc(stname)}</div>'
-                           f'<div class="track" style="height:8px;background:#EEF2F6;border-radius:4px">'
-                           f'<div style="height:100%;width:{100*n/smax:.1f}%;background:{col};opacity:.55;border-radius:4px"></div></div>'
-                           f'<div class="stn">{n}</div></div>')
+                           f'{waffle(n, col, "sub")}<div class="stn">{n}</div></div>')
         nstaff = len(staffc)
         out += (f'<details class="areadet"><summary class="asum"><div class="arow">'
                 f'<span class="chev">&#9656;</span>'
                 f'<div class="aname">{esc(aname)}</div>'
-                f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px">'
-                f'<div style="height:100%;width:{100*atot/amax:.1f}%;background:{col};border-radius:6px"></div></div>'
+                f'{waffle(atot, col)}'
                 f'<div class="acount" style="color:{col}">{atot}</div>'
                 f'<div class="astaffn">{nstaff} staff</div></div></summary>'
                 f'<div class="staffwrap">{staff_rows}</div></details>')
@@ -584,16 +584,19 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .asum {{ list-style:none; cursor:pointer; padding:12px 4px; }}
   .asum::-webkit-details-marker {{ display:none; }}
   .asum:hover .aname {{ color:#0B5A8A; }}
-  .arow {{ display:grid; grid-template-columns:16px minmax(140px,240px) 1fr 46px 62px; gap:12px; align-items:center; }}
+  .arow {{ display:grid; grid-template-columns:16px minmax(140px,220px) 1fr 46px 62px; gap:14px; align-items:center; }}
   .chev {{ color:#9AA7B2; font-size:13px; transition:transform .15s ease; }}
   details[open] .chev {{ transform:rotate(90deg); }}
   .aname {{ font-size:13px; font-weight:700; color:#0F2238; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
   .acount {{ text-align:right; font-weight:700; font-size:13.5px; font-variant-numeric:tabular-nums; }}
   .astaffn {{ text-align:right; font-size:11px; color:#9AA7B2; font-variant-numeric:tabular-nums; }}
   .staffwrap {{ margin:0 0 14px 30px; padding:6px 0 6px 14px; border-left:2px solid #EDF1F4; }}
-  .strow {{ display:grid; grid-template-columns:minmax(140px,220px) 1fr 34px; gap:14px; align-items:center; margin-bottom:7px; }}
+  .strow {{ display:grid; grid-template-columns:minmax(140px,200px) 1fr 34px; gap:14px; align-items:center; margin-bottom:8px; }}
   .stname {{ font-size:12px; color:#43586B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
   .stn {{ text-align:right; font-size:12px; font-weight:700; color:#5B7186; font-variant-numeric:tabular-nums; }}
+  .waffle {{ display:flex; flex-wrap:wrap; gap:3px; align-content:center; }}
+  .sq {{ width:10px; height:10px; border-radius:2px; }}
+  .waffle.sub .sq {{ width:9px; height:9px; opacity:.62; }}
 
   .hubgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }}
   .hubcard {{ border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; background:#FBFCFD; }}
