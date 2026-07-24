@@ -153,40 +153,47 @@ def build_world_map(stations, office_counts, links):
         fill = '#C6D8E8' if hit else '#E6EAF0'
         base.append(f'<path d="{d}" fill="{fill}" stroke="#FFFFFF" stroke-width="0.4"/>')
 
-    # arcs
+    # arcs (tagged by hub so a click can highlight them)
     arcs = []
     stn = {s['name']: s for s in stations}
+    office_hubs = {}   # office -> set of hub keys that serve it
     for (sname, off), w in sorted(links.items(), key=lambda kv: -kv[1]):
         s = stn.get(sname)
         c = resolve(off)
         if not s or not c:
             continue
+        key = s.get('key', '')
+        office_hubs.setdefault(off, set()).add(key)
         x0, y0 = project(s['lon'], s['lat'])
         x1, y1 = project(c[0], c[1])
         dist = math.hypot(x1 - x0, y1 - y0)
         cxp, cyp = (x0 + x1) / 2, min(y0, y1) - dist * 0.22 - 8
         wdt = 0.5 + min(w, 12) * 0.16
-        arcs.append(f'<path d="M{x0:.1f} {y0:.1f} Q{cxp:.1f} {cyp:.1f} {x1:.1f} {y1:.1f}" '
+        arcs.append(f'<path class="wmarc" data-hub="{key}" data-op="0.28" data-w="{wdt:.2f}" '
+                    f'd="M{x0:.1f} {y0:.1f} Q{cxp:.1f} {cyp:.1f} {x1:.1f} {y1:.1f}" '
                     f'stroke="{s["color"]}" stroke-width="{wdt:.2f}" fill="none" opacity="0.28"/>')
 
-    # destination dots
+    # destination dots (tagged with the hubs that serve them)
     dots = []
     for off in office_counts:
         c = resolve(off)
         if not c:
             continue
         x, y = project(c[0], c[1])
-        dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.3" fill="#6C7B8C" opacity="0.9"/>')
+        hubs = ' '.join(sorted(office_hubs.get(off, ())))
+        dots.append(f'<circle class="wmdot" data-hubs="{hubs}" cx="{x:.1f}" cy="{y:.1f}" r="2.3" fill="#6C7B8C" opacity="0.9"/>')
 
-    # duty-station bubbles + labels (+ transparent hover hit-areas)
+    # duty-station bubbles + labels (+ transparent hover/click hit-areas)
     bubbles, labels, hits, tips = [], [], [], []
     for s in sorted(stations, key=lambda s: -s['count']):
         x, y = project(s['lon'], s['lat'])
         r = 6 + math.sqrt(s['count']) * 2.15
         col = s['color']
-        bubbles.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r+7:.1f}" fill="{col}" opacity="0.13"/>'
+        key = s.get('key', '')
+        bubbles.append(f'<g class="wmbub" data-hub="{key}">'
+                       f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r+7:.1f}" fill="{col}" opacity="0.13"/>'
                        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{col}" opacity="0.88" stroke="#fff" stroke-width="2"/>'
-                       f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.4" fill="#fff"/>')
+                       f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.4" fill="#fff"/></g>')
         anchor = s.get('anchor', 'top')
         if anchor == 'right':
             lx, ly, ta = x + r + 8, y + 4, 'start'
@@ -197,14 +204,16 @@ def build_world_map(stations, office_counts, links):
         labels.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{ta}" class="wmlabel">'
                       f'{_esc(s["name"])} <tspan class="wmcount">{s["count"]}</tspan></text>')
         key = s.get('key', '')
-        if key and s.get('tip'):
+        if key:
             hits.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{max(r+8, 13):.1f}" fill="#000" opacity="0" '
                         f'style="pointer-events:all;cursor:pointer" onmouseenter="mapTip(evt,\'{key}\')" '
-                        f'onmousemove="mapTipMove(evt)" onmouseleave="mapTipHide()"/>')
-            tips.append(f'<div id="tip-{key}" class="tiptpl" style="display:none">{s["tip"]}</div>')
+                        f'onmousemove="mapTipMove(evt)" onmouseleave="mapTipHide()" '
+                        f'onclick="selectHub(evt,\'{key}\')"/>')
+            if s.get('tip'):
+                tips.append(f'<div id="tip-{key}" class="tiptpl" style="display:none">{s["tip"]}</div>')
 
     svg = (f'<div class="wmwrap"><svg viewBox="0 0 {WIDTH:.0f} {HEIGHT:.0f}" class="wmsvg" '
-           f'preserveAspectRatio="xMidYMid meet">'
+           f'preserveAspectRatio="xMidYMid meet" onclick="clearHub()">'
            + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(bubbles) + ''.join(labels) + ''.join(hits)
            + '</svg></div>')
     return svg + ''.join(tips) + '<div id="maptip" class="maptip"></div>'

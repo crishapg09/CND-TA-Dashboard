@@ -594,6 +594,10 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   /* flow map */
   .wmwrap {{ overflow-x:auto; background:#F7FAFC; border-radius:10px; padding:4px; }}
   .wmsvg {{ width:100%; min-width:720px; height:auto; display:block; }}
+  .wmarc {{ transition:opacity .18s ease, stroke-width .18s ease; }}
+  .wmdot, .wmbub {{ transition:opacity .18s ease; }}
+  .wmbub {{ cursor:pointer; }}
+  .wmhint {{ font-size:11.5px; color:#0B6FA4; margin-top:12px; }}
   .wmlabel {{ font:600 13px 'Helvetica Neue',Arial,sans-serif; fill:#0F2238; paint-order:stroke; stroke:#fff; stroke-width:3px; stroke-linejoin:round; }}
   .wmcount {{ font-weight:700; }}
   .wmlegend {{ display:flex; flex-wrap:wrap; gap:10px 20px; margin-top:14px; }}
@@ -768,6 +772,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
           <div class="lg"><span class="lgdot" style="background:#6C7B8C;border-radius:50%"></span>Supported country office</div>
           <div class="lg"><span class="lgswatch"></span>Country named in the request export</div>
         </div>
+        <div id="wmhint" class="wmhint" data-idle="Tip: click a duty station to trace the countries it supports · hover for details.">Tip: click a duty station to trace the countries it supports · hover for details.</div>
       </div>
       <div class="card mt16">
         <div class="cardtitle">By Centre-of-Excellence location — thematic areas &amp; staff assigned</div>
@@ -904,6 +909,28 @@ function mapTipMove(e){{
   t.style.left=x+'px'; t.style.top=Math.max(8,y)+'px';
 }}
 function mapTipHide(){{ document.getElementById('maptip').style.display='none'; }}
+var selHub=null;
+function selectHub(e,key){{ e.stopPropagation(); selHub=(selHub===key)?null:key; applyHub(); }}
+function clearHub(){{ if(selHub!==null){{ selHub=null; applyHub(); }} }}
+function applyHub(){{
+  var arcs=document.querySelectorAll('.wmarc');
+  for(var i=0;i<arcs.length;i++){{ var a=arcs[i];
+    if(selHub===null){{ a.style.opacity=a.getAttribute('data-op'); a.style.strokeWidth=a.getAttribute('data-w'); }}
+    else if(a.getAttribute('data-hub')===selHub){{ a.style.opacity='0.95'; a.style.strokeWidth=(parseFloat(a.getAttribute('data-w'))+0.7).toFixed(2); }}
+    else {{ a.style.opacity='0.04'; }}
+  }}
+  var dots=document.querySelectorAll('.wmdot');
+  for(var j=0;j<dots.length;j++){{ var d=dots[j];
+    if(selHub===null){{ d.style.opacity='0.9'; d.setAttribute('r','2.3'); }}
+    else if((' '+d.getAttribute('data-hubs')+' ').indexOf(' '+selHub+' ')>=0){{ d.style.opacity='1'; d.setAttribute('r','3.2'); }}
+    else {{ d.style.opacity='0.12'; d.setAttribute('r','2.3'); }}
+  }}
+  var bubs=document.querySelectorAll('.wmbub');
+  for(var k=0;k<bubs.length;k++){{ bubs[k].style.opacity=(selHub===null||bubs[k].getAttribute('data-hub')===selHub)?'':'0.28'; }}
+  var hint=document.getElementById('wmhint');
+  if(hint) hint.textContent = selHub===null ? hint.getAttribute('data-idle')
+    : 'Highlighting the countries this duty station supports — click it again, or the map, to reset.';
+}}
 </script>
 </body></html>'''
 
