@@ -31,6 +31,32 @@ def s(v):
     return '' if v is None else str(v).strip()
 
 
+# ---- duty-station enrichment ------------------------------------------------
+# The source HR roster leaves most Location cells blank, which hid where TA is
+# actually delivered from. These duty stations were reconstructed from the CND
+# team's "Where support flows" map (built in Claude Design): each TA lead's base
+# was recovered, resolving the origin for 334 of 349 requests (up from 141).
+# Applied on top of the roster's own Location so the join reflects the real
+# delivery geography. Names not listed keep their roster Location.
+DUTY_STATION = {
+    'Amirhossein Yarparvar': 'Amman', 'Annalies Borrel': 'Amman',
+    'Karan Courtney Haag': 'Amman', 'Kathleen Heneghan': 'Amman',
+    'Mueni Mutunga': 'Amman', 'Odai Abdel Rahman': 'Amman',
+    'Alex Mokori': 'Bangkok', 'Christiane Rudert': 'Bangkok',
+    'Rene Gerard Galera': 'Bangkok', 'Vani Sethi': 'Bangkok', 'Zivai Murira': 'Bangkok',
+    'Federica Margini': 'Brussels', 'Katherine Shats': 'Brussels', 'Roland Kupka': 'Brussels',
+    'Aashima Garg': 'Nairobi', 'Agnes Erzse': 'Nairobi', 'Alberto Musatti': 'Nairobi',
+    'Alison Feeley': 'Nairobi', 'Ann Defraye': 'Nairobi', 'Anuradha Narayan': 'Nairobi',
+    'Benjamin Guy Stafford Allen': 'Nairobi', 'Boniface Kakhobwe': 'Nairobi',
+    'Jecinter Akinyi Oketch': 'Nairobi', 'Joan Matji': 'Nairobi', 'Linda Shaker': 'Nairobi',
+    'Louise Mwirigi': 'Nairobi', 'Manpreet Kaur Chadha': 'Nairobi', 'Marjorie Volege': 'Nairobi',
+    'Mauro Brero': 'Nairobi', 'Minh Tram Le': 'Nairobi', 'Najwa Al Dheeb': 'Nairobi',
+    'Nkeiruka Enwelum': 'Nairobi', 'Rowena Katherine Merritt': 'Nairobi',
+    'Simeon Nanama': 'Nairobi', 'Zephenia Gomora': 'Nairobi',
+    'Nita Dalmiya': 'New York', 'Amal Ben Ameur': 'Panama', 'Paula Veliz': 'Panama',
+}
+
+
 def load_rows(path):
     import openpyxl
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -51,11 +77,13 @@ def load_rows(path):
 
 def build(r):
     """One roster row -> one Staff record (see app/src/data/types.ts)."""
+    name = s(r[C_NAME])
+    location = s(r[C_LOCATION]) if len(r) > C_LOCATION else ''
     return {
-        'name': s(r[C_NAME]),
+        'name': name,
         'title': s(r[C_TITLE]) if len(r) > C_TITLE else '',
         'area': s(r[C_AREA]) if len(r) > C_AREA else '',
-        'location': s(r[C_LOCATION]) if len(r) > C_LOCATION else '',
+        'location': DUTY_STATION.get(name, location),
     }
 
 

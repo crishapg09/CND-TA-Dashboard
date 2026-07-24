@@ -243,32 +243,68 @@ mgmt_kpis = kpi_strip([
 ])
 
 # ======================================================================
-# WHERE SUPPORT FLOWS
+# WHERE SUPPORT FLOWS — geographic map (origin duty station -> destination)
+# Universe: all non-discontinued requests (matches the map's "349").
 # ======================================================================
-HUB_ORDER = ['Nairobi', 'Bangkok', 'Brussels', 'Panama', 'Canada']
-hub_cases = defaultdict(list)
-for c in PERF:
-    hub_cases[c['loc'] if c['loc'] else 'Not recorded'].append(c)
-hub_color = {'Nairobi': '#0B6FA4', 'Bangkok': '#2E7D5B', 'Brussels': '#7A4FB0',
-             'Panama': '#C87A2E', 'Canada': '#0B5A8A', 'Not recorded': '#9AA7B2'}
-ordered_hubs = [h for h in HUB_ORDER if h in hub_cases] + \
-               [h for h in hub_cases if h not in HUB_ORDER and h != 'Not recorded'] + \
-               (['Not recorded'] if 'Not recorded' in hub_cases else [])
-n_hubs = len([h for h in ordered_hubs if h != 'Not recorded'])
-n_countries = len({c['office'] for c in PERF if c['office']})
-flow_html = ''
+import worldmap
+
+flowcases = [c for c in cases if c['status'] != 'Discontinued']
+# duty station of each request = its TA lead's location (from the enriched roster)
+HUB_META = {  # name: (lon, lat, label-anchor, colour)
+    'Nairobi':  (36.82, -1.29, 'top',   '#0B6FA4'),
+    'Bangkok':  (100.50, 13.75, 'right', '#2E7D5B'),
+    'Amman':    (35.93, 31.95, 'top',   '#7A4FB0'),
+    'Brussels': (4.35, 50.85, 'top',    '#1CABE2'),
+    'Panama':   (-79.52, 8.98, 'left',  '#C87A2E'),
+    'New York': (-74.01, 40.71, 'left', '#43586B'),
+}
+
+def hub_of(c):
+    loc = c['loc']
+    return loc if loc in HUB_META else ('(blank)' if c['lead'] else '(unassigned)')
+
+hub_total = Counter(hub_of(c) for c in flowcases)
+hub_leads = defaultdict(Counter)   # hub -> {lead: n}
+for c in flowcases:
+    if c['lead']:
+        hub_leads[hub_of(c)][c['lead']] += 1
+
+# map inputs
+office_counts = Counter(c['office'] for c in flowcases if c['loc'] in HUB_META and c['office'])
+links = Counter((c['loc'], c['office']) for c in flowcases if c['loc'] in HUB_META and c['office'])
+stations = [{'name': n, 'lon': lo, 'lat': la, 'anchor': an, 'color': co, 'count': hub_total.get(n, 0)}
+            for n, (lo, la, an, co) in HUB_META.items() if hub_total.get(n, 0)]
+flow_map = worldmap.build_world_map(stations, office_counts, links)
+
+# headline figures
+ordered_hubs = sorted([n for n in HUB_META if hub_total.get(n, 0)], key=lambda n: -hub_total[n])
+n_hubs = len(ordered_hubs)
+n_countries = len({c['office'] for c in flowcases if c['office']})
+n_resolved = sum(hub_total[h] for h in ordered_hubs)
+n_blank = hub_total.get('(blank)', 0)
+n_unassigned = hub_total.get('(unassigned)', 0)
+
+# hub detail cards (chips are TA leads, matching the CND design)
+hub_cards = ''
 for hub in ordered_hubs:
-    rows = hub_cases[hub]
-    dest = Counter(c['office'] or '— global —' for c in rows)
-    ndest = len({c['office'] for c in rows if c['office']})
-    col = hub_color.get(hub, '#5B7186')
-    chips = ''.join(f'<span class="destchip">{esc(country)} <b>{cnt}</b></span>' for country, cnt in dest.most_common(6))
-    more = len(dest) - 6
-    if more > 0: chips += f'<span class="destchip muted">+{more} more</span>'
-    note_txt = f'{ndest} countries supported' if hub != 'Not recorded' else 'lead duty station not in roster'
-    flow_html += (f'<div class="hubcard"><div class="hubhead"><span class="hubdot" style="background:{col}"></span>'
-                  f'<span class="hubname">{esc(hub)}</span><span class="hubcount" style="color:{col}">{len(rows)}</span></div>'
-                  f'<div class="hubsub">{note_txt}</div><div class="destwrap">{chips}</div></div>')
+    lm = hub_leads[hub]; col = HUB_META[hub][3]
+    chips = ''.join(f'<span class="destchip">{esc(name)} <b>{n}</b></span>' for name, n in lm.most_common(6))
+    more = len(lm) - 6
+    if more > 0:
+        chips += f'<span class="destchip muted">+{more} more leads</span>'
+    hub_cards += (f'<div class="hubcard"><div class="hubhead"><span class="hubdot" style="background:{col}"></span>'
+                  f'<span class="hubname">{esc(hub)}</span><span class="hubcount" style="color:{col}">{hub_total[hub]}</span></div>'
+                  f'<div class="hubsub">{len(lm)} TA lead{"s" if len(lm)!=1 else ""} based here</div>'
+                  f'<div class="destwrap">{chips}</div></div>')
+# blank / no-origin card
+_blank_leads = hub_leads['(blank)']
+_blank_chips = ''.join(f'<span class="destchip">{esc(name)} <b>{n}</b></span>' for name, n in _blank_leads.most_common(6))
+if n_unassigned:
+    _blank_chips += f'<span class="destchip muted">(unassigned lead) {n_unassigned}</span>'
+hub_cards += (f'<div class="hubcard"><div class="hubhead"><span class="hubdot" style="background:#9AA7B2"></span>'
+              f'<span class="hubname">Duty station blank</span><span class="hubcount" style="color:#9AA7B2">{n_blank + n_unassigned}</span></div>'
+              f'<div class="hubsub">{len(_blank_leads)} lead{"s" if len(_blank_leads)!=1 else ""} with no location in the roster · plus {n_unassigned} requests with no lead</div>'
+              f'<div class="destwrap">{_blank_chips}</div></div>')
 
 # ======================================================================
 # DATA QUALITY (co = CO, all statuses)
@@ -384,77 +420,6 @@ def checkitems(items):
     return out
 
 # ======================================================================
-# FLOW MAP (origin duty station -> destination country) — Sankey-style
-# ======================================================================
-def build_flow_svg():
-    known = [c for c in PERF if c['loc']]
-    if not known:
-        return '<div class="muted">No duty-station data to map.</div>'
-    hubs = [h for h in HUB_ORDER if any(c['loc'] == h for c in known)]
-    for h in sorted({c['loc'] for c in known}):
-        if h not in hubs:
-            hubs.append(h)
-    dest_tot = Counter(c['office'] for c in known if c['office'])
-    topN = [d for d, _ in dest_tot.most_common(12)]
-    def dkey(c):
-        return c['office'] if c['office'] in topN else 'Other countries'
-    rights = list(topN)
-    if any(dkey(c) == 'Other countries' for c in known):
-        rights.append('Other countries')
-    total = len(known)
-    gap, total_h, top_pad = 8, 520, 26
-    left_avail = total_h - (len(hubs) - 1) * gap
-    right_avail = total_h - (len(rights) - 1) * gap
-    scale = min(left_avail, right_avail) / total
-    left_used = total * scale + (len(hubs) - 1) * gap
-    ly = top_pad + (total_h - left_used) / 2
-    hub_node = {}
-    for h in hubs:
-        cnt = sum(1 for x in known if x['loc'] == h)
-        hub_node[h] = [ly, cnt * scale, ly]
-        ly += cnt * scale + gap
-    right_used = total * scale + (len(rights) - 1) * gap
-    ry = top_pad + (total_h - right_used) / 2
-    right_node = {}
-    for r in rights:
-        cnt = sum(1 for x in known if dkey(x) == r)
-        right_node[r] = [ry, cnt * scale, ry]
-        ry += cnt * scale + gap
-    linkw = Counter((x['loc'], dkey(x)) for x in known)
-    x0, x1 = 262, 718
-    paths = ''
-    for h in hubs:
-        for r in rights:
-            w = linkw.get((h, r), 0)
-            if not w:
-                continue
-            t = w * scale
-            y0 = hub_node[h][2] + t / 2; hub_node[h][2] += t
-            y1 = right_node[r][2] + t / 2; right_node[r][2] += t
-            col = hub_color.get(h, '#5B7186')
-            paths += (f'<path d="M{x0} {y0:.1f} C{x0+120} {y0:.1f} {x1-120} {y1:.1f} {x1} {y1:.1f}" '
-                      f'stroke="{col}" stroke-width="{max(1.2, t):.1f}" fill="none" opacity="0.30"/>')
-    nodes = ''
-    for h in hubs:
-        top, hh, _ = hub_node[h]; col = hub_color.get(h, '#5B7186')
-        cnt = sum(1 for x in known if x['loc'] == h)
-        nodes += f'<rect x="250" y="{top:.1f}" width="12" height="{max(2, hh):.1f}" rx="2" fill="{col}"/>'
-        nodes += f'<text x="244" y="{top+hh/2+4:.1f}" text-anchor="end" class="fnl">{esc(h)} <tspan class="fnc">{cnt}</tspan></text>'
-    for r in rights:
-        top, rh, _ = right_node[r]; cnt = sum(1 for x in known if dkey(x) == r)
-        lab = r if len(r) <= 24 else r[:23] + '…'
-        nodes += f'<rect x="718" y="{top:.1f}" width="12" height="{max(2, rh):.1f}" rx="2" fill="#5B7186"/>'
-        nodes += f'<text x="736" y="{top+rh/2+4:.1f}" text-anchor="start" class="fnl"><tspan class="fnc">{cnt}</tspan> {esc(lab)}</text>'
-    head = ('<div class="flowmaphead"><span>Origin — TA-lead duty station</span>'
-            '<span>Destination — supported country</span></div>')
-    return (head + f'<div class="flowmapwrap"><svg viewBox="0 0 980 {total_h+2*top_pad}" '
-            f'class="flowsvg" preserveAspectRatio="xMidYMid meet">{paths}{nodes}</svg></div>')
-
-flow_svg = build_flow_svg()
-n_known = sum(1 for c in PERF if c['loc'])
-n_unknown = len(PERF) - n_known
-
-# ======================================================================
 # ASSEMBLE
 # ======================================================================
 def panelhead(title, sub=''):
@@ -553,11 +518,12 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .tfoot {{ padding:12px 22px 14px; font-size:11.5px; color:#8A98A6; line-height:1.55; border-top:1px solid #F1F4F7; }}
 
   /* flow map */
-  .flowmaphead {{ display:flex; justify-content:space-between; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:#9AA7B2; font-weight:700; padding:0 6px 8px; }}
-  .flowmapwrap {{ overflow-x:auto; }}
-  .flowsvg {{ width:100%; min-width:660px; height:auto; display:block; }}
-  .fnl {{ font:12px 'Helvetica Neue',Arial,sans-serif; fill:#43586B; }}
-  .fnc {{ fill:#0B6FA4; font-weight:700; }}
+  .wmwrap {{ overflow-x:auto; background:#F7FAFC; border-radius:10px; padding:4px; }}
+  .wmsvg {{ width:100%; min-width:720px; height:auto; display:block; }}
+  .wmlabel {{ font:600 13px 'Helvetica Neue',Arial,sans-serif; fill:#0F2238; paint-order:stroke; stroke:#fff; stroke-width:3px; stroke-linejoin:round; }}
+  .wmcount {{ font-weight:700; }}
+  .wmlegend {{ display:flex; flex-wrap:wrap; gap:10px 20px; margin-top:14px; }}
+  .lgswatch {{ width:16px; height:11px; border-radius:2px; background:#C6D8E8; display:inline-block; }}
   .flowintro {{ font-size:13px; color:#5B7186; margin-bottom:16px; }} .flowintro b {{ color:#0B6FA4; font-size:15px; }}
   .hubgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }}
   .hubcard {{ border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; background:#FBFCFD; }}
@@ -682,13 +648,17 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div class="subpanel-perf" id="flows" style="display:none">
       {panelhead('Where support flows', 'From each request’s TA-lead duty station (origin) to the supported country office (destination).')}
       <div class="card">
-        <div class="flowintro"><b>{n_hubs}</b> support hubs providing technical assistance to <b>{n_countries}</b> countries. The map traces {n_known} requests with a known duty station; {n_unknown} more have a lead whose duty station is not in the roster.</div>
-        {flow_svg}
+        <div class="flowintro"><b>{n_hubs}</b> duty stations delivering technical assistance to <b>{n_countries}</b> countries. Origin is each request’s TA-lead duty station, joined to the CND staff roster ({len(staff)} staff); destination is the country office being supported.</div>
+        {flow_map}
+        <div class="wmlegend">
+          <div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Duty station, sized by requests led</div>
+          <div class="lg"><span class="lgdot" style="background:#6C7B8C;border-radius:50%"></span>Supported country office</div>
+          <div class="lg"><span class="lgswatch"></span>Country named in the request export</div>
+        </div>
       </div>
       <div class="card mt16">
-        <div class="cardtitle">Support hubs in detail</div>
-        <div class="hubgrid">{flow_html}</div>
-        <div class="cardnote"><strong>What this says:</strong> most nutrition TA is delivered remotely — leads in Nairobi, Bangkok, Brussels and Panama support country offices worldwide. Capturing the duty station for every lead would complete the origin picture.</div>
+        <div class="hubgrid">{hub_cards}</div>
+        <div class="cardnote"><strong>What this says:</strong> with the full staff roster joined in, origins resolve for <b>{n_resolved}</b> of {len(flowcases)} requests — up from 141. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)}), with <b>Bangkok</b> and <b>Amman</b> the next largest bases; almost all of it is delivered remotely to country offices in other regions. Only {n_blank + n_unassigned} requests still lack an origin.</div>
       </div>
     </div>
 
