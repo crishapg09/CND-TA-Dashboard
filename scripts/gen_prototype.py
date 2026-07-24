@@ -315,11 +315,12 @@ for L in HUB_META:
 
 # map inputs
 office_counts = Counter(c['office'] for c in flowcases if c['loc'] in HUB_META and c['office'])
+office_totals = Counter(c['office'] for c in flowcases if c['office'])   # all requests per country
 links = Counter((c['loc'], c['office']) for c in flowcases if c['loc'] in HUB_META and c['office'])
 stations = [{'name': n, 'key': slug(n), 'lon': lo, 'lat': la, 'anchor': an, 'color': co,
              'count': hub_total.get(n, 0), 'tip': station_tips.get(n, '')}
             for n, (lo, la, an, co) in HUB_META.items() if hub_total.get(n, 0)]
-flow_map = worldmap.build_world_map(stations, office_counts, links)
+flow_map = worldmap.build_world_map(stations, office_counts, links, office_totals)
 
 loc_tabs = ''
 for L in LOC_ORDER:
@@ -909,6 +910,14 @@ function mapTipMove(e){{
   t.style.left=x+'px'; t.style.top=Math.max(8,y)+'px';
 }}
 function mapTipHide(){{ document.getElementById('maptip').style.display='none'; }}
+function dotTip(e,el){{
+  var t=document.getElementById('maptip'); if(!t) return;
+  var n=el.getAttribute('data-n');
+  t.innerHTML='<div class="maptip-title" style="margin-bottom:0"><span class="mtdot" style="background:#6C7B8C;border-radius:50%"></span><span id="dtname"></span></div>'
+    +'<div class="maptip-sub" style="margin:4px 0 0">'+n+' request'+(n==='1'?'':'s')+' received</div>';
+  document.getElementById('dtname').textContent=el.getAttribute('data-name');
+  t.style.display='block'; mapTipMove(e);
+}}
 var selHub=null;
 function selectHub(e,key){{ e.stopPropagation(); selHub=(selHub===key)?null:key; applyHub(); }}
 function clearHub(){{ if(selHub!==null){{ selHub=null; applyHub(); }} }}

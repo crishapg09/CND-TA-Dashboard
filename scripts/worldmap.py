@@ -131,12 +131,15 @@ def resolve(office):
     return None
 
 
-def build_world_map(stations, office_counts, links):
+def build_world_map(stations, office_counts, links, office_totals=None):
     """
-    stations: list of {name, lon, lat, count, color, anchor}
+    stations: list of {name, lon, lat, count, color, anchor, key, tip}
     office_counts: {office_display_name: n}  (destination dots + highlight)
     links: {(station_name, office_display_name): weight}
+    office_totals: {office: total requests received} for the dot tooltips
+                   (falls back to office_counts when omitted)
     """
+    totals = office_totals or office_counts
     _load()
     highlight = set()
     for off in office_counts:
@@ -173,8 +176,8 @@ def build_world_map(stations, office_counts, links):
                     f'd="M{x0:.1f} {y0:.1f} Q{cxp:.1f} {cyp:.1f} {x1:.1f} {y1:.1f}" '
                     f'stroke="{s["color"]}" stroke-width="{wdt:.2f}" fill="none" opacity="0.28"/>')
 
-    # destination dots (tagged with the hubs that serve them)
-    dots = []
+    # destination dots (tagged with the hubs that serve them) + hover hit-areas
+    dots, dothits = [], []
     for off in office_counts:
         c = resolve(off)
         if not c:
@@ -182,6 +185,9 @@ def build_world_map(stations, office_counts, links):
         x, y = project(c[0], c[1])
         hubs = ' '.join(sorted(office_hubs.get(off, ())))
         dots.append(f'<circle class="wmdot" data-hubs="{hubs}" cx="{x:.1f}" cy="{y:.1f}" r="2.3" fill="#6C7B8C" opacity="0.9"/>')
+        dothits.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6" fill="#000" opacity="0" '
+                       f'style="pointer-events:all" data-name="{_attr(off)}" data-n="{totals.get(off, 0)}" '
+                       f'onmouseenter="dotTip(evt,this)" onmousemove="mapTipMove(evt)" onmouseleave="mapTipHide()"/>')
 
     # duty-station bubbles + labels (+ transparent hover/click hit-areas)
     bubbles, labels, hits, tips = [], [], [], []
@@ -214,10 +220,15 @@ def build_world_map(stations, office_counts, links):
 
     svg = (f'<div class="wmwrap"><svg viewBox="0 0 {WIDTH:.0f} {HEIGHT:.0f}" class="wmsvg" '
            f'preserveAspectRatio="xMidYMid meet" onclick="clearHub()">'
-           + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(bubbles) + ''.join(labels) + ''.join(hits)
+           + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(bubbles) + ''.join(labels)
+           + ''.join(hits) + ''.join(dothits)
            + '</svg></div>')
     return svg + ''.join(tips) + '<div id="maptip" class="maptip"></div>'
 
 
 def _esc(x):
     return (str(x).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
+
+
+def _attr(x):
+    return _esc(x).replace('"', '&quot;')
