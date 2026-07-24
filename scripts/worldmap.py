@@ -178,8 +178,8 @@ def build_world_map(stations, office_counts, links):
         x, y = project(c[0], c[1])
         dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.3" fill="#6C7B8C" opacity="0.9"/>')
 
-    # duty-station bubbles + labels
-    bubbles, labels = [], []
+    # duty-station bubbles + labels (+ transparent hover hit-areas)
+    bubbles, labels, hits, tips = [], [], [], []
     for s in sorted(stations, key=lambda s: -s['count']):
         x, y = project(s['lon'], s['lat'])
         r = 6 + math.sqrt(s['count']) * 2.15
@@ -196,11 +196,18 @@ def build_world_map(stations, office_counts, links):
             lx, ly, ta = x, y - r - 8, 'middle'
         labels.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{ta}" class="wmlabel">'
                       f'{_esc(s["name"])} <tspan class="wmcount">{s["count"]}</tspan></text>')
+        key = s.get('key', '')
+        if key and s.get('tip'):
+            hits.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{max(r+8, 13):.1f}" fill="#000" opacity="0" '
+                        f'style="pointer-events:all;cursor:pointer" onmouseenter="mapTip(evt,\'{key}\')" '
+                        f'onmousemove="mapTipMove(evt)" onmouseleave="mapTipHide()"/>')
+            tips.append(f'<div id="tip-{key}" class="tiptpl" style="display:none">{s["tip"]}</div>')
 
-    return (f'<div class="wmwrap"><svg viewBox="0 0 {WIDTH:.0f} {HEIGHT:.0f}" class="wmsvg" '
-            f'preserveAspectRatio="xMidYMid meet">'
-            + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(bubbles) + ''.join(labels)
-            + '</svg></div>')
+    svg = (f'<div class="wmwrap"><svg viewBox="0 0 {WIDTH:.0f} {HEIGHT:.0f}" class="wmsvg" '
+           f'preserveAspectRatio="xMidYMid meet">'
+           + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(bubbles) + ''.join(labels) + ''.join(hits)
+           + '</svg></div>')
+    return svg + ''.join(tips) + '<div id="maptip" class="maptip"></div>'
 
 
 def _esc(x):

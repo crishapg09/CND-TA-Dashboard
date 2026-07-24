@@ -11,7 +11,7 @@ each request's TA-lead duty station to the supported country office.
 Everything is rendered as visible stacked sections (no hidden tabs) so the
 whole dashboard can be reviewed and edited at once. Data-driven from the
 committed cases.json + staff.json."""
-import json, os, html, datetime
+import json, os, re, html, datetime
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -263,18 +263,14 @@ def hub_of(c):
     loc = c['loc']
     return loc if loc in HUB_META else ('(blank)' if c['lead'] else '(unassigned)')
 
+def slug(x):
+    return re.sub(r'[^a-z0-9]+', '', x.lower()) or 'x'
+
 hub_total = Counter(hub_of(c) for c in flowcases)
 hub_leads = defaultdict(Counter)   # hub -> {lead: n}
 for c in flowcases:
     if c['lead']:
         hub_leads[hub_of(c)][c['lead']] += 1
-
-# map inputs
-office_counts = Counter(c['office'] for c in flowcases if c['loc'] in HUB_META and c['office'])
-links = Counter((c['loc'], c['office']) for c in flowcases if c['loc'] in HUB_META and c['office'])
-stations = [{'name': n, 'lon': lo, 'lat': la, 'anchor': an, 'color': co, 'count': hub_total.get(n, 0)}
-            for n, (lo, la, an, co) in HUB_META.items() if hub_total.get(n, 0)]
-flow_map = worldmap.build_world_map(stations, office_counts, links)
 
 # headline figures
 ordered_hubs = sorted([n for n in HUB_META if hub_total.get(n, 0)], key=lambda n: -hub_total[n])
@@ -284,11 +280,6 @@ n_resolved = sum(hub_total[h] for h in ordered_hubs)
 n_blank = hub_total.get('(blank)', 0)
 n_unassigned = hub_total.get('(unassigned)', 0)
 
-# ---- interactive "by CoE location" graphic: tabs -> thematic areas -> staff ----
-import re
-def slug(x):
-    return re.sub(r'[^a-z0-9]+', '', x.lower()) or 'x'
-
 LOC_ORDER = ordered_hubs + ['Blank']            # Nairobi … New York, then Blank
 LOC_COLOR = {**{n: HUB_META[n][3] for n in HUB_META}, 'Blank': '#9AA7B2'}
 
@@ -297,12 +288,38 @@ def loc_key(c):
 
 loc_total = Counter(loc_key(c) for c in flowcases)
 loc_leadcount = {L: len({c['lead'] for c in flowcases if loc_key(c) == L and c['lead']}) for L in LOC_ORDER}
-# location -> thematic area -> staff -> request count
-loc_area = {L: defaultdict(Counter) for L in LOC_ORDER}
+# location -> thematic area -> staff -> Counter(implementation status)
+loc_area = {L: defaultdict(lambda: defaultdict(Counter)) for L in LOC_ORDER}
 for c in flowcases:
-    area = c['area']                            # lead's thematic area, or '(unassigned lead)'
-    who = c['lead'] or '(unassigned lead)'
-    loc_area[loc_key(c)][area][who] += 1
+    loc_area[loc_key(c)][c['area']][c['lead'] or '(unassigned lead)'][c['status']] += 1
+
+# per-hub tooltip content for the map (thematic areas + staff-per-area, countries supported)
+station_tips = {}
+for L in HUB_META:
+    hc = [c for c in flowcases if hub_of(c) == L]
+    if not hc:
+        continue
+    countries = len({c['office'] for c in hc if c['office']})
+    area_staff = defaultdict(set)
+    for c in hc:
+        if c['lead']:
+            area_staff[c['area']].add(c['lead'])
+    nstaff = len({c['lead'] for c in hc if c['lead']})
+    rows = ''.join(
+        f'<div><span>{esc("No lead" if a == "(unassigned lead)" else a)}</span><b>{len(s)} staff</b></div>'
+        for a, s in sorted(area_staff.items(), key=lambda kv: -len(kv[1])))
+    station_tips[L] = (
+        f'<div class="maptip-title"><span class="mtdot" style="background:{HUB_META[L][3]}"></span>{esc(L)}</div>'
+        f'<div class="maptip-sub">{len(hc)} requests · {countries} countries supported · {nstaff} staff</div>'
+        f'<div class="maptip-areas">{rows}</div>')
+
+# map inputs
+office_counts = Counter(c['office'] for c in flowcases if c['loc'] in HUB_META and c['office'])
+links = Counter((c['loc'], c['office']) for c in flowcases if c['loc'] in HUB_META and c['office'])
+stations = [{'name': n, 'key': slug(n), 'lon': lo, 'lat': la, 'anchor': an, 'color': co,
+             'count': hub_total.get(n, 0), 'tip': station_tips.get(n, '')}
+            for n, (lo, la, an, co) in HUB_META.items() if hub_total.get(n, 0)]
+flow_map = worldmap.build_world_map(stations, office_counts, links)
 
 loc_tabs = ''
 for L in LOC_ORDER:
@@ -310,36 +327,49 @@ for L in LOC_ORDER:
     loc_tabs += (f'<button class="loctab{on}" data-loc="{slug(L)}" onclick="showLoc(\'{slug(L)}\')">'
                  f'<span class="ltdot" style="background:{LOC_COLOR[L]}"></span>{esc(L)} <b>{loc_total.get(L, 0)}</b></button>')
 
-def waffle(n, col, cls=''):
-    """A unit chart: one little square per TA request."""
-    sq = f'<span class="sq" style="background:{col}"></span>'
-    return f'<div class="waffle {cls}">{sq * n}</div>'
+def status_waffle(counter, cls=''):
+    """A unit chart: one little square per TA request, coloured by implementation status."""
+    sq = ''
+    for s in STATUS_ORDER:
+        n = counter.get(s, 0)
+        if n:
+            sq += f'<span class="sq" style="background:{SC[s]}"></span>' * n
+    return f'<div class="waffle {cls}">{sq}</div>'
 
 def build_loc_bars(L, areas):
-    """Collapsible thematic areas; each shows a square per TA. Expand for staff. All closed."""
+    """Collapsible thematic areas; each shows a square per TA (coloured by status).
+    Expand for staff. All closed. `areas` = list of (area, {staff: Counter(status)})."""
     col = LOC_COLOR[L]
     out = ''
-    for area, staffc in areas:
-        atot = sum(staffc.values())
+    for area, staff_map in areas:
+        area_status = Counter()
+        staff_tot = {}
+        for st, sc in staff_map.items():
+            staff_tot[st] = sum(sc.values())
+            area_status.update(sc)
+        atot = sum(area_status.values())
         aname = 'No lead assigned' if area == '(unassigned lead)' else area
         staff_rows = ''
-        for st, n in staffc.most_common():
+        for st, tot in sorted(staff_tot.items(), key=lambda kv: -kv[1]):
             stname = '— unassigned —' if st == '(unassigned lead)' else st
             staff_rows += (f'<div class="strow"><div class="stname">{esc(stname)}</div>'
-                           f'{waffle(n, col, "sub")}<div class="stn">{n}</div></div>')
-        nstaff = len(staffc)
+                           f'{status_waffle(staff_map[st], "sub")}<div class="stn">{tot}</div></div>')
+        nstaff = len(staff_map)
         out += (f'<details class="areadet"><summary class="asum"><div class="arow">'
                 f'<span class="chev">&#9656;</span>'
                 f'<div class="aname">{esc(aname)}</div>'
-                f'{waffle(atot, col)}'
+                f'{status_waffle(area_status)}'
                 f'<div class="acount" style="color:{col}">{atot}</div>'
                 f'<div class="astaffn">{nstaff} staff</div></div></summary>'
                 f'<div class="staffwrap">{staff_rows}</div></details>')
     return out
 
 loc_panels = ''
+def _area_total(kv):
+    return sum(sum(sc.values()) for sc in kv[1].values())
+
 for L in LOC_ORDER:
-    areas = sorted(loc_area[L].items(), key=lambda kv: -sum(kv[1].values()))
+    areas = sorted(loc_area[L].items(), key=lambda kv: -_area_total(kv))
     n_areas = len([a for a, _ in areas if a != '(unassigned lead)'])
     disp = 'block' if L == LOC_ORDER[0] else 'none'
     nlead = loc_leadcount.get(L, 0)
@@ -596,7 +626,17 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .stn {{ text-align:right; font-size:12px; font-weight:700; color:#5B7186; font-variant-numeric:tabular-nums; }}
   .waffle {{ display:flex; flex-wrap:wrap; gap:3px; align-content:center; }}
   .sq {{ width:10px; height:10px; border-radius:2px; }}
-  .waffle.sub .sq {{ width:9px; height:9px; opacity:.62; }}
+  .waffle.sub .sq {{ width:9px; height:9px; }}
+  .statuslegend {{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin-top:20px; padding-top:14px; border-top:1px solid #F1F4F7; }}
+  .sllabel {{ font-size:11.5px; color:#5B7186; font-weight:600; margin-right:4px; }}
+
+  /* map hover tooltip */
+  .maptip {{ position:fixed; z-index:100; pointer-events:none; display:none; background:#0F2238; color:#fff; border-radius:9px; padding:11px 13px; font-size:12px; max-width:300px; box-shadow:0 8px 26px rgba(15,34,56,.32); }}
+  .maptip-title {{ font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:7px; }}
+  .mtdot {{ width:10px; height:10px; border-radius:3px; display:inline-block; }}
+  .maptip-sub {{ color:#AEBDCB; font-size:11px; margin:3px 0 9px; }}
+  .maptip-areas > div {{ display:flex; justify-content:space-between; gap:18px; padding:2px 0; font-size:11.5px; color:#DCE6EF; }}
+  .maptip-areas b {{ color:#fff; font-weight:700; white-space:nowrap; }}
 
   .hubgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }}
   .hubcard {{ border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; background:#FBFCFD; }}
@@ -733,6 +773,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         <div class="cardtitle">By Centre-of-Excellence location — thematic areas &amp; staff assigned</div>
         <div class="loctabs">{loc_tabs}</div>
         {loc_panels}
+        <div class="statuslegend"><span class="sllabel">Each square is one request · coloured by implementation status</span>{legend()}</div>
         <div class="cardnote"><strong>What this says:</strong> pick a duty station to see how its TA load splits across thematic areas and which staff carry each area. With the full roster joined in, origins resolve for <b>{n_resolved}</b> of {len(flowcases)} requests — up from 141. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)}); only {n_blank + n_unassigned} requests still lack an origin.</div>
       </div>
     </div>
@@ -850,6 +891,19 @@ function showLoc(id){{
   var ts=document.querySelectorAll('.loctab');
   for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-loc')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
 }}
+function mapTip(e,id){{
+  var t=document.getElementById('maptip'), s=document.getElementById('tip-'+id);
+  if(!t||!s) return;
+  t.innerHTML=s.innerHTML; t.style.display='block'; mapTipMove(e);
+}}
+function mapTipMove(e){{
+  var t=document.getElementById('maptip'); if(t.style.display==='none') return;
+  var x=e.clientX+16, y=e.clientY+16;
+  if(x+t.offsetWidth>window.innerWidth-8) x=e.clientX-t.offsetWidth-16;
+  if(y+t.offsetHeight>window.innerHeight-8) y=window.innerHeight-t.offsetHeight-8;
+  t.style.left=x+'px'; t.style.top=Math.max(8,y)+'px';
+}}
+function mapTipHide(){{ document.getElementById('maptip').style.display='none'; }}
 </script>
 </body></html>'''
 
