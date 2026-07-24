@@ -1,171 +1,394 @@
 #!/usr/bin/env python3
-"""Generate a self-contained HTML prototype of the nutrition TA dashboard
-(thematic areas, no regions, staff-location -> supported-country flow) for
-iterating the look in Claude Design. Data-driven from the committed JSON."""
-import json, os, math, html
+"""Generate a self-contained HTML prototype of the nutrition TA dashboard for
+iterating the look in Claude Design.
+
+Faithful to the live React dashboard (app/src/lib/dashboard.ts) — same KPIs,
+Performance sections and three-stage Data Quality Review — but rescoped to one
+team: thematic area (from the staff-roster join) replaces practice AND region,
+regions are dropped entirely, and a new "Where support flows" section links
+each request's TA-lead duty station to the supported country office.
+
+Everything is rendered as visible stacked sections (no hidden tabs) so the
+whole dashboard can be reviewed and edited at once. Data-driven from the
+committed cases.json + staff.json."""
+import json, os, html, datetime
 from collections import Counter, defaultdict
 
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app', 'src', 'data')
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'design')
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.join(os.path.dirname(HERE), 'app', 'src', 'data')
+OUT = os.path.join(os.path.dirname(HERE), 'design')
 os.makedirs(OUT, exist_ok=True)
 
 cases = json.load(open(f'{ROOT}/cases.json'))
 staff = json.load(open(f'{ROOT}/staff.json'))
 TODAY = json.load(open(f'{ROOT}/today.json'))
 by_name = {s['name']: s for s in staff}
+EPOCH = datetime.datetime(1899, 12, 30)
 
 STATUS_ORDER = ['0%', '25%', '50%', '75%', '100%', 'Unassigned']
-STATUS_COLORS = {'0%': '#D6E0E8', '25%': '#9CC6E0', '50%': '#5BA3D0',
-                 '75%': '#2C7DB5', '100%': '#0B5A8A', 'Discontinued': '#9AA7B2',
-                 'Unassigned': '#E0A21E'}
+SC = {'0%': '#D6E0E8', '25%': '#9CC6E0', '50%': '#5BA3D0', '75%': '#2C7DB5',
+      '100%': '#0B5A8A', 'Discontinued': '#9AA7B2', 'Unassigned': '#E0A21E'}
+DARK = {'50%', '75%', '100%', 'Discontinued'}
 
-# ---- enrich cases with lead thematic area + location ----
 for c in cases:
     s = by_name.get(c['lead'])
-    c['area'] = s['area'] if s and s['area'] else ''
+    c['area'] = (s['area'] if s and s['area'] else '') or '(unassigned lead)'
     c['loc'] = (s['location'].strip() if s and s['location'] else '') if s else ''
 
-live = [c for c in cases if c['status'] != 'Discontinued']       # reporting universe
-active = [c for c in live if c['status'] not in ('100%', 'Unassigned')]
-overdue = [c for c in active if c['xc'] is not None and c['xc'] < TODAY]
-ontrack = [c for c in active if not (c['xc'] is not None and c['xc'] < TODAY)]
-recent = [c for c in live if (c['cr'] or c['op']) and (c['cr'] or c['op']) >= TODAY - 30]
-due = [c for c in live if c['xc'] is not None and c['xc'] <= TODAY]
-done_due = [c for c in due if c['status'] == '100%']
-completed = [c for c in live if c['status'] == '100%']
-
-def pct(a, b): return round(100 * a / b) if b else 0
-
-# ---------- helpers ----------
 def esc(x): return html.escape(str(x))
+def month(serial):
+    if serial is None: return -1
+    d = EPOCH + datetime.timedelta(days=serial)
+    return d.month - 1 if d.year == 2026 else -1
+def fmtdate(serial):
+    if serial is None: return '—'
+    d = EPOCH + datetime.timedelta(days=serial)
+    return d.strftime('%d %b %Y')
+def pct(a, b): return round(100 * a / b) if b else 0
+def chip(status):
+    return SC[status], ('#fff' if status in DARK else '#1F3346')
+
+# ---- universes (regions dropped; CO = has a real country office) ----
+CO = [c for c in cases if c['region'] not in ('HQ', '')]           # country-office requests
+PERF = [c for c in CO if c['status'] != 'Discontinued']            # performance universe
+active = [c for c in PERF if c['status'] not in ('100%', 'Discontinued', 'Unassigned')]
+overdue = sorted([c for c in active if c['xc'] is not None and c['xc'] < TODAY],
+                 key=lambda c: -(TODAY - c['xc']))
+ontrackSet = [c for c in active if not (c['xc'] is not None and c['xc'] < TODAY)]
+onTrack = len(active) - len(overdue)
+recent = [c for c in PERF if (c['cr'] or c['op']) and (c['cr'] or c['op']) >= TODAY - 30]
+due = [c for c in PERF if c['xc'] is not None and c['xc'] <= TODAY]
+doneDue = [c for c in due if c['status'] == '100%']
+closed30 = [c for c in PERF if c['cl'] is not None and TODAY - 30 <= c['cl'] <= TODAY]
+stalled = [c for c in active if c['status'] == '0%' and c['op'] is not None and TODAY - c['op'] > 30]
+disc = [c for c in CO if c['status'] == 'Discontinued']
+
+# ======================================================================
+# small rendering helpers
+# ======================================================================
+def groupby_area(rows):
+    g = defaultdict(list)
+    for c in rows: g[c['area']].append(c)
+    return sorted(g.items(), key=lambda kv: -len(kv[1]))
 
 def stacked_segs(rows):
-    """rows: list of case dicts -> list of (color, width%) by status order."""
-    n = len(rows)
-    segs = []
+    n = len(rows); out = []
     for s in STATUS_ORDER:
         w = sum(1 for c in rows if c['status'] == s)
-        if w:
-            segs.append((STATUS_COLORS[s], 100 * w / n))
-    return segs
+        if w: out.append((SC[s], 100 * w / n))
+    return out
 
-def seg_html(segs, pct_of_max, h=11, track='#EEF2F6'):
+def seg_bar(segs, width_pct, h=12, track='#EEF2F6'):
     inner = ''.join(f'<span style="width:{w:.2f}%;background:{col}"></span>' for col, w in segs)
     return (f'<div class="track" style="height:{h}px;background:{track};border-radius:{h/2}px">'
-            f'<div class="bar" style="height:100%;width:{pct_of_max:.1f}%;border-radius:{h/2}px">{inner}</div></div>')
+            f'<div class="bar" style="height:100%;width:{width_pct:.1f}%;border-radius:{h/2}px">{inner}</div></div>')
 
-# ============ SECTION: thematic areas ============
-area_groups = defaultdict(list)
-for c in live:
-    area_groups[c['area'] or '(unassigned lead)'].append(c)
-area_rows = sorted(area_groups.items(), key=lambda kv: -len(kv[1]))
-area_max = max(len(v) for _, v in area_rows)
+def barlist(items, color, track='#E9F0F6', label_w=64, empty='None in the current filter.'):
+    if not items: return f'<div class="muted">{empty}</div>'
+    mx = max(n for _, n in items) or 1
+    rows = ''
+    for label, n in items:
+        rows += (f'<div class="blrow" style="grid-template-columns:{label_w}px 1fr 34px">'
+                 f'<div class="bllabel">{esc(label)}</div>'
+                 f'<div class="track" style="height:9px;background:{track};border-radius:5px"><div style="height:100%;width:{100*n/mx:.1f}%;background:{color};border-radius:5px"></div></div>'
+                 f'<div class="bln">{n}</div></div>')
+    return rows
 
-area_html = ''
-for name, rows in area_rows:
-    leads = len({c['lead'] for c in rows if c['lead']})
-    area_html += f'''
-      <div class="arearow">
-        <div class="arealabel">{esc(name)}</div>
-        {seg_html(stacked_segs(rows), 100*len(rows)/area_max, h=13)}
-        <div class="an">{len(rows)}</div>
-        <div class="al">{leads}</div>
-      </div>'''
+def bucket_bars(buckets, label_w=92):
+    mx = max((b[1] for b in buckets), default=1) or 1
+    rows = ''
+    for label, n, color in buckets:
+        rows += (f'<div class="blrow" style="grid-template-columns:{label_w}px 1fr 44px">'
+                 f'<div class="bllabel">{esc(label)}</div>'
+                 f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px"><div style="height:100%;width:{100*n/mx:.1f}%;background:{color};border-radius:6px"></div></div>'
+                 f'<div class="bln" style="color:{color}">{n}</div></div>')
+    return rows
 
-# ============ SECTION: where support flows ============
+def area_status_rows(rows_by_area, label_w=210):
+    mx = max((len(v) for _, v in rows_by_area), default=1) or 1
+    out = ''
+    for name, rows in rows_by_area:
+        leads = len({c['lead'] for c in rows if c['lead']})
+        out += (f'<div class="arearow" style="grid-template-columns:{label_w}px 1fr 44px 52px">'
+                f'<div class="arealabel">{esc(name)}</div>'
+                f'{seg_bar(stacked_segs(rows), 100*len(rows)/mx, 13)}'
+                f'<div class="an">{len(rows)}</div><div class="al">{leads}</div></div>')
+    return out
+
+def legend():
+    return ''.join(f'<div class="lg"><span class="lgdot" style="background:{SC[s]}"></span>{s}</div>' for s in STATUS_ORDER)
+
+def kpi_strip(tiles):
+    out = ''
+    for label, val, sub, accent, color in tiles:
+        out += (f'<div class="kpi" style="border-top:3px solid {accent}">'
+                f'<div class="kpilabel">{label}</div><div class="kpival" style="color:{color}">{val}</div>'
+                f'<div class="kpisub">{sub}</div></div>')
+    return f'<div class="kpistrip">{out}</div>'
+
+def hero(bg, border, labelc, value, valuec, label, body, bodyc):
+    return (f'<div class="hero" style="background:{bg};border:1px solid {border}">'
+            f'<div class="herolabel" style="color:{labelc}">{label}</div>'
+            f'<div class="heroval" style="color:{valuec}">{value}</div>'
+            f'<div class="herobody" style="color:{bodyc}">{body}</div></div>')
+
+def req_table(title, rows, metric_label, days_color, footer='', cols=None):
+    cols = cols or ['Case', 'Country', 'Description', 'Thematic area', 'Exp. completion', 'Status', 'State', 'TA lead', metric_label]
+    head = ''.join(f'<div class="{"r" if h==cols[-1] else ""}">{esc(h)}</div>' for h in cols)
+    body = ''
+    for r in rows:
+        cbg, cfg = chip(r['status'])
+        state = 'Closed' if r['cl'] else 'Open'
+        sbg, sfg = ('#E7EEF3', '#0B5A8A') if r['cl'] else ('#E6F0EA', '#2E7D5B')
+        lead = r['lead'] or '— none —'
+        leadc = '#43586B' if r['lead'] else '#C0453F'
+        body += (f'<div class="trow">'
+                 f'<div class="tid">{esc(r["id"])}</div>'
+                 f'<div class="tclip">{esc(r["office"] or "—")}</div>'
+                 f'<div class="tclip muted" title="{esc(r.get("full") or r.get("desc") or "")}">{esc(r.get("full") or r.get("desc") or "—")}</div>'
+                 f'<div class="tclip">{esc(r["area"])}</div>'
+                 f'<div class="tnum">{fmtdate(r["xc"])}</div>'
+                 f'<div><span class="pill" style="background:{cbg};color:{cfg}">{esc(r["status"])}</span></div>'
+                 f'<div><span class="pill" style="background:{sbg};color:{sfg}">{state}</span></div>'
+                 f'<div class="tclip" style="color:{leadc}">{esc(lead)}</div>'
+                 f'<div class="tmetric" style="color:{days_color}">{esc(r["_m"])}</div></div>')
+    foot = f'<div class="tfoot">{footer}</div>' if footer else ''
+    return (f'<div class="table"><div class="ttitle">{esc(title)}</div>'
+            f'<div class="tscroll"><div class="tmin">'
+            f'<div class="thead">{head}</div><div class="tbody">{body}</div></div></div>{foot}</div>')
+
+# ======================================================================
+# PERFORMANCE
+# ======================================================================
+perf_kpis = kpi_strip([
+    ('Total requests', str(len(PERF)), 'nutrition TA requests (country offices)', '#0B6FA4', '#0F2238'),
+    ('Received last 30 days', str(len(recent)), 'new since 24 Jun 2026', '#1CABE2', '#0F2238'),
+    ('Active &amp; on track', str(onTrack), 'in progress, not overdue', '#3E9CD6', '#3E9CD6'),
+    ('Completed vs. target', f'{pct(len(doneDue), len(due))}%', f'of {len(due)} due by today, {len(doneDue)} at 100%', '#2E7D5B', '#2E7D5B'),
+    ('Active on target', f'{pct(onTrack, len(active))}%', f'{len(overdue)} overdue — update date or close', '#3E9CD6', '#0F2238'),
+    ('Overdue', str(len(overdue)), 'past their expected completion date', '#C0453F', '#C0453F'),
+])
+
+# opened vs completed by month (Apr-Jul = idx 3..6)
+io = []
+for i in range(3, 7):
+    opened = sum(1 for c in PERF if month(c['op']) == i)
+    comp = sum(1 for c in PERF if c['status'] == '100%' and month(c['cl'] if c['cl'] is not None else c['rs']) == i)
+    io.append((['Jan','Feb','Mar','Apr','May','Jun','Jul'][i], opened, comp))
+io_max = max((max(o, d) for _, o, d in io), default=1) or 1
+io_html = ''
+for label, o, d in io:
+    io_html += (f'<div class="mcol">'
+                f'<div class="mpair">'
+                f'<div class="mbarwrap"><div class="mval" style="color:#0B6FA4">{o}</div><div class="mbar" style="height:{round(140*o/io_max)}px;background:#0B6FA4"></div></div>'
+                f'<div class="mbarwrap"><div class="mval" style="color:#2E7D5B">{d}</div><div class="mbar" style="height:{round(140*d/io_max)}px;background:#2E7D5B"></div></div>'
+                f'</div><div class="mlabel">{label}</div></div>')
+io_opened = sum(o for _, o, _ in io); io_done = sum(d for _, _, d in io)
+
+# received last 30 / on track / overdue — by thematic area
+recent_area = [(k, len(v)) for k, v in groupby_area(recent)]
+ontrack_area = [(k, len(v)) for k, v in groupby_area(ontrackSet)]
+overdue_area = [(k, len(v)) for k, v in groupby_area(overdue)]
+
+# newest + overdue tables
+for c in cases: c['_m'] = ''
+newest = sorted(recent, key=lambda c: -((c['cr'] or c['op']) or 0))
+for c in newest: c['_m'] = str(round(TODAY - (c['cr'] or c['op'])))
+for c in overdue: c['_m'] = '+' + str(round(TODAY - c['xc']))
+
+# overdue severity
+ob = [('1–30 days', sum(1 for c in overdue if TODAY - c['xc'] <= 30), '#E0A21E'),
+      ('31–60 days', sum(1 for c in overdue if 30 < TODAY - c['xc'] <= 60), '#CD6A2E'),
+      ('>60 days', sum(1 for c in overdue if TODAY - c['xc'] > 60), '#C0453F')]
+ob_max = max((n for _, n, _ in ob), default=1) or 1
+
+# stalled at 0% by thematic area (severity stacked)
+def stalled_area_rows():
+    g = groupby_area(stalled)
+    if not g: return ''
+    mx = max((len(v) for _, v in g), default=1) or 1
+    out = ''
+    for name, rows in g:
+        n31 = sum(1 for c in rows if TODAY - c['op'] <= 60)
+        n60 = sum(1 for c in rows if TODAY - c['op'] > 60)
+        segs = []
+        if n31: segs.append(('#CD6A2E', 100*n31/len(rows)))
+        if n60: segs.append(('#C0453F', 100*n60/len(rows)))
+        out += (f'<div class="arearow" style="grid-template-columns:210px 1fr 44px">'
+                f'<div class="arealabel">{esc(name)}</div>{seg_bar(segs, 100*len(rows)/mx, 11, "#F5EEDF")}'
+                f'<div class="an">{len(rows)}</div></div>')
+    return out
+
+# workload
+lead_map = defaultdict(list)
+for c in PERF:
+    if c['lead']: lead_map[c['lead']].append(c)
+lead_groups = sorted(lead_map.items(), key=lambda kv: -len(kv[1]))
+counts = [len(v) for _, v in lead_groups]
+load_min, load_max, load_avg = min(counts), max(counts), sum(counts)/len(counts)
+lmax = max(counts) or 1
+lead_html = ''
+for name, rows in lead_groups:
+    lead_html += (f'<div class="leadrow"><div class="leadlabel"><div class="leadname">{esc(name)}</div>'
+                  f'<div class="leadarea">{esc(rows[0]["area"])}</div></div>'
+                  f'{seg_bar(stacked_segs(rows), 100*len(rows)/lmax, 11)}<div class="ln">{len(rows)}</div></div>')
+
+mgmt_kpis = kpi_strip([
+    ('Open → assignment', 'N/A', 'measure coming soon', '#9AA7B2', '#9AA7B2'),
+    ('Assignment → first response', 'N/A', 'measure coming soon', '#9AA7B2', '#9AA7B2'),
+    ('Opened last 30 days', str(len(recent)), 'new requests received', '#0B6FA4', '#0F2238'),
+    ('Closed last 30 days', str(len(closed30)), f'vs {len(recent)} received — throughput', '#2E7D5B', '#0F2238'),
+    ('Stalled at 0%', str(len(stalled)), 'open >30 days, no progress', '#E0A21E', '#E0A21E'),
+    ('Discontinued', str(len(disc)), f'{pct(len(disc), len(CO))}% requests dropped', '#9AA7B2', '#5B7186'),
+])
+
+# ======================================================================
+# WHERE SUPPORT FLOWS
+# ======================================================================
 HUB_ORDER = ['Nairobi', 'Bangkok', 'Brussels', 'Panama', 'Canada']
 hub_cases = defaultdict(list)
-for c in live:
-    hub = c['loc'] if c['loc'] else 'Not recorded'
-    hub_cases[hub].append(c)
-
+for c in PERF:
+    hub_cases[c['loc'] if c['loc'] else 'Not recorded'].append(c)
 hub_color = {'Nairobi': '#0B6FA4', 'Bangkok': '#2E7D5B', 'Brussels': '#7A4FB0',
              'Panama': '#C87A2E', 'Canada': '#0B5A8A', 'Not recorded': '#9AA7B2'}
 ordered_hubs = [h for h in HUB_ORDER if h in hub_cases] + \
                [h for h in hub_cases if h not in HUB_ORDER and h != 'Not recorded'] + \
                (['Not recorded'] if 'Not recorded' in hub_cases else [])
-
 n_hubs = len([h for h in ordered_hubs if h != 'Not recorded'])
-n_countries = len({c['office'] for c in live if c['office']})
-
+n_countries = len({c['office'] for c in PERF if c['office']})
 flow_html = ''
 for hub in ordered_hubs:
     rows = hub_cases[hub]
-    dest = Counter(c['office'] or '— global / HQ —' for c in rows)
+    dest = Counter(c['office'] or '— global —' for c in rows)
     ndest = len({c['office'] for c in rows if c['office']})
     col = hub_color.get(hub, '#5B7186')
-    chips = ''
-    for country, cnt in dest.most_common(6):
-        chips += f'<span class="destchip">{esc(country)} <b>{cnt}</b></span>'
+    chips = ''.join(f'<span class="destchip">{esc(country)} <b>{cnt}</b></span>' for country, cnt in dest.most_common(6))
     more = len(dest) - 6
-    if more > 0:
-        chips += f'<span class="destchip muted">+{more} more</span>'
-    note = f'{ndest} countries supported' if hub != 'Not recorded' else 'lead duty station not in roster'
-    flow_html += f'''
-      <div class="hubcard">
-        <div class="hubhead">
-          <span class="hubdot" style="background:{col}"></span>
-          <span class="hubname">{esc(hub)}</span>
-          <span class="hubcount" style="color:{col}">{len(rows)}</span>
-        </div>
-        <div class="hubsub">{note}</div>
-        <div class="destwrap">{chips}</div>
-      </div>'''
+    if more > 0: chips += f'<span class="destchip muted">+{more} more</span>'
+    note_txt = f'{ndest} countries supported' if hub != 'Not recorded' else 'lead duty station not in roster'
+    flow_html += (f'<div class="hubcard"><div class="hubhead"><span class="hubdot" style="background:{col}"></span>'
+                  f'<span class="hubname">{esc(hub)}</span><span class="hubcount" style="color:{col}">{len(rows)}</span></div>'
+                  f'<div class="hubsub">{note_txt}</div><div class="destwrap">{chips}</div></div>')
 
-# ============ SECTION: workload by lead ============
-lead_groups = defaultdict(list)
-for c in live:
-    if c['lead']:
-        lead_groups[c['lead']].append(c)
-lead_rows = sorted(lead_groups.items(), key=lambda kv: -len(kv[1]))
-lead_max = max(len(v) for _, v in lead_rows)
-counts = [len(v) for _, v in lead_rows]
-load_min, load_max = min(counts), max(counts)
-load_avg = sum(counts) / len(counts)
+# ======================================================================
+# DATA QUALITY (co = CO, all statuses)
+# ======================================================================
+co = CO
+setupSet = [c for c in co if c['status'] in ('Unassigned', '0%', '25%')]
+started = [c for c in co if c['status'] in ('50%', '75%')]
+completedC = [c for c in co if c['status'] == '100%']
+delivery = started + completedC
+activeCO = [c for c in co if c['status'] not in ('100%', 'Discontinued')]
 
-lead_html = ''
-for name, rows in lead_rows:
-    area = rows[0]['area']
-    lead_html += f'''
-      <div class="leadrow">
-        <div class="leadlabel"><div class="leadname">{esc(name)}</div><div class="leadarea">{esc(area)}</div></div>
-        {seg_html(stacked_segs(rows), 100*len(rows)/lead_max, h=11)}
-        <div class="ln">{len(rows)}</div>
-      </div>'''
+def stall_days(c):
+    if c['status'] == 'Unassigned': return round(TODAY - (c['cr'] if c['cr'] is not None else c['op']))
+    return round(TODAY - (c['up'] if c['up'] is not None else (c['cr'] if c['cr'] is not None else c['op'])))
+def is_stalled(c):
+    return stall_days(c) > (14 if c['status'] == 'Unassigned' else 30)
+stalledSetup = [c for c in setupSet if is_stalled(c)]
 
-# ============ status legend ============
-legend_html = ''.join(
-    f'<div class="lg"><span class="lgdot" style="background:{STATUS_COLORS[s]}"></span>{s}</div>'
-    for s in STATUS_ORDER)
+# stage 1
+stage_color = {'Unassigned': '#E0A21E', '0%': '#9CC6E0', '25%': '#5BA3D0'}
+setup_funnel = [(s, sum(1 for c in setupSet if c['status'] == s), stage_color[s]) for s in ('Unassigned', '0%', '25%')]
+aging = [('0–14 days', sum(1 for c in setupSet if stall_days(c) <= 14), '#3E9CD6'),
+         ('15–30 days', sum(1 for c in setupSet if 14 < stall_days(c) <= 30), '#E0A21E'),
+         ('30+ days', sum(1 for c in setupSet if stall_days(c) > 30), '#C0453F')]
+stalled_by_area = [(k, len(v)) for k, v in groupby_area(stalledSetup)]
+unassigned_by_area = [(k, len(v)) for k, v in groupby_area([c for c in setupSet if c['status'] == 'Unassigned'])]
+zero_by_area = [(k, len(v)) for k, v in groupby_area([c for c in setupSet if c['status'] == '0%'])]
+stalled_table_rows = sorted(stalledSetup, key=lambda c: -stall_days(c))[:12]
+for c in stalled_table_rows: c['_m'] = str(stall_days(c)) + 'd'
+at25 = [c for c in setupSet if c['status'] == '25%']
+ready = [c for c in at25 if c['ho'] and c['lead'] and c['xc'] is not None]
+no_lead = [c for c in setupSet if c['status'] in ('0%', '25%') and not c['lead']]
 
-# ============ KPI strip ============
-kpis = [
-    ('Total requests', str(len(live)), 'active nutrition TA requests', '#0B6FA4', '#0F2238'),
-    ('Received last 30 days', str(len(recent)), 'new since 24 Jun 2026', '#1CABE2', '#0F2238'),
-    ('Active &amp; on track', str(len(ontrack)), 'in progress, not overdue', '#3E9CD6', '#3E9CD6'),
-    ('Completed vs. target', f'{pct(len(done_due), len(due))}%', f'of {len(due)} due by today at 100%', '#2E7D5B', '#2E7D5B'),
-    ('Overdue', str(len(overdue)), 'past expected completion', '#C0453F', '#C0453F'),
+# stage 2
+delN = len(delivery)
+cfields = [('Objectives', lambda c: bool(c['ho'])), ('TA lead', lambda c: bool(c['lead'])),
+           ('Expected completion', lambda c: c['xc'] is not None), ('Description', lambda c: bool(c['hd'])),
+           ('Modality', lambda c: bool(c['modality'])), ('Programme offer', lambda c: bool(c['offer']))]
+def qcolor(p): return '#2E7D5B' if p >= 95 else '#3E9CD6' if p >= 80 else '#E0A21E'
+completeness = [(label, pct(sum(1 for c in delivery if fn(c)), delN)) for label, fn in cfields]
+def passes(c):
+    ok = bool(c['ho'] and c['lead'] and c['xc'] is not None and c['hd'] and c['modality'] and c['offer'])
+    bad = c['xc'] is not None and c['xs'] is not None and c['xc'] < c['xs']
+    return ok and not bad
+passN = sum(1 for c in delivery if passes(c))
+score = pct(passN, delN)
+def qcol2(p): return '#2E7D5B' if p >= 80 else '#3E9CD6' if p >= 60 else '#E0A21E'
+quality_by_area = sorted([(k, pct(sum(1 for c in v if passes(c)), len(v))) for k, v in groupby_area(delivery)], key=lambda kv: kv[1])
+delivery_flags = [
+    (sum(1 for c in delivery if not c['ho']), 'Missing objectives', 'work has started but objectives were never captured', '#C0453F'),
+    (sum(1 for c in delivery if not c['lead']), 'No TA lead', 'in delivery yet unassigned', '#C0453F'),
+    (sum(1 for c in delivery if c['xc'] is None), 'No expected completion date', 'timeliness can never be measured', '#C0453F'),
+    (sum(1 for c in delivery if c['xc'] is not None and c['xs'] is not None and c['xc'] < c['xs']), 'Completion target before start', 'expected completion earlier than expected start', '#E0A21E'),
 ]
-kpi_html = ''
-for label, val, sub, accent, color in kpis:
-    kpi_html += f'''
-      <div class="kpi" style="border-top:3px solid {accent}">
-        <div class="kpilabel">{label}</div>
-        <div class="kpival" style="color:{color}">{val}</div>
-        <div class="kpisub">{sub}</div>
-      </div>'''
+def reason(c):
+    if not c['ho']: return 'no objectives'
+    if not c['lead']: return 'no TA lead'
+    if c['xc'] is None: return 'no target date'
+    if not c['hd']: return 'no description'
+    if not c['modality']: return 'no modality'
+    if not c['offer']: return 'no offer'
+    if c['xs'] is not None and c['xc'] < c['xs']: return 'target before start'
+    return 'ok'
+flagRecords = [c for c in delivery if not passes(c)]
+for c in flagRecords: c['_m'] = reason(c)
+seen = set(); dup = 0
+for c in co:
+    if not c['reqFor'] or not c['desc']: continue
+    k = (c['reqFor'] + '|' + c['desc']).lower()
+    if k in seen: dup += 1
+    else: seen.add(k)
 
-# overall status funnel
-funnel_max = max(sum(1 for c in live if c['status'] == s) for s in STATUS_ORDER)
-funnel_html = ''
-for s in STATUS_ORDER:
-    n = sum(1 for c in live if c['status'] == s)
-    funnel_html += f'''
-      <div class="funrow">
-        <div class="funlabel">{s}</div>
-        <div class="track" style="height:14px;background:#EEF2F6;border-radius:7px"><div style="height:100%;width:{100*n/funnel_max:.1f}%;background:{STATUS_COLORS[s]};border-radius:7px"></div></div>
-        <div class="funn">{n}</div>
-      </div>'''
+# stage 3
+dq_overdue = sorted([c for c in activeCO if c['xc'] is not None and c['xc'] < TODAY], key=lambda c: -(TODAY - c['xc']))
+for c in dq_overdue: c['_m'] = '+' + str(round(TODAY - c['xc'])) + 'd'
+dq_ob = [('1–30 days', sum(1 for c in dq_overdue if TODAY - c['xc'] <= 30), '#E0A21E'),
+         ('31–60 days', sum(1 for c in dq_overdue if 30 < TODAY - c['xc'] <= 60), '#CD6A2E'),
+         ('>60 days', sum(1 for c in dq_overdue if TODAY - c['xc'] > 60), '#C0453F')]
+at_risk = [c for c in activeCO if c['xc'] is not None and TODAY <= c['xc'] <= TODAY + 30]
+dq_overdue_area = [(k, len(v)) for k, v in groupby_area(dq_overdue)]
+not_closed = [c for c in co if c['status'] in ('100%', 'Discontinued') and not c['cl']]
+for c in not_closed: c['_m'] = 'completed' if c['status'] == '100%' else 'discontinued'
+
+dq_kpis = kpi_strip([
+    ('Awaiting assignment', str(sum(1 for c in setupSet if c['status'] == 'Unassigned')), 'unassigned CO requests', '#E0A21E', '#0F2238'),
+    ('In setup (0–25%)', str(sum(1 for c in setupSet if c['status'] != 'Unassigned')), 'being scoped with the CO', '#5BA3D0', '#0F2238'),
+    ('Stalled in setup', str(len(stalledSetup)), 'stuck past the threshold', '#C0453F', '#C0453F'),
+    ('In delivery (50%+)', str(len(started)), 'work has started', '#0B6FA4', '#0F2238'),
+    ('Needing cleanup', str(len(flagRecords)), '50%+ with a data flag', '#C0453F', '#C0453F'),
+    ('Overdue', str(len(dq_overdue)), 'active past target date', '#C0453F', '#C0453F'),
+])
+
+def completeness_rows():
+    out = ''
+    for label, p in completeness:
+        out += (f'<div class="crow"><div class="clabel">{esc(label)}</div>'
+                f'<div class="track" style="height:10px;background:#EEF2F6;border-radius:5px"><div style="height:100%;width:{p}%;background:{qcolor(p)};border-radius:5px"></div></div>'
+                f'<div class="cpct" style="color:{qcolor(p)}">{p}%</div></div>')
+    return out
+def quality_rows(items, label_w=210):
+    out = ''
+    for label, p in items:
+        out += (f'<div class="blrow" style="grid-template-columns:{label_w}px 1fr 44px">'
+                f'<div class="bllabel">{esc(label)}</div>'
+                f'<div class="track" style="height:10px;background:#EEF2F6;border-radius:5px"><div style="height:100%;width:{p}%;background:{qcol2(p)};border-radius:5px"></div></div>'
+                f'<div class="bln" style="color:{qcol2(p)}">{p}%</div></div>')
+    return out
+def checkitems(items):
+    out = ''
+    for n, label, sub, color in items:
+        out += (f'<div class="check"><div class="checkn" style="color:{color}">{n}</div>'
+                f'<div><div class="checklabel">{esc(label)}</div><div class="checksub">{esc(sub)}</div></div></div>')
+    return out
+
+# ======================================================================
+# ASSEMBLE
+# ======================================================================
+def section(n, title, sub='', bg='#0B6FA4'):
+    subhtml = f'<div class="secsub">{sub}</div>' if sub else ''
+    return f'<div class="sec"><div class="secn" style="background:{bg}">{n}</div><div class="sectitle">{esc(title)}</div>{subhtml}</div>'
 
 PAGE = f'''<!-- @dsCard group="Dashboards" -->
 <!doctype html>
@@ -173,56 +396,86 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nutrition TA Performance Dashboard</title>
 <style>
-  * {{ box-sizing: border-box; }}
-  body {{ margin:0; background:#EDF1F4; color:#0F2238;
-         font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }}
+  * {{ box-sizing:border-box; }}
+  body {{ margin:0; background:#EDF1F4; color:#0F2238; font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }}
   .wrap {{ max-width:1340px; margin:0 auto; padding:0 24px 70px; }}
-  .track {{ overflow:hidden; }}
-  .bar {{ display:flex; overflow:hidden; }}
-  .bar span {{ display:block; }}
+  .track {{ overflow:hidden; }} .bar {{ display:flex; overflow:hidden; }} .bar span {{ display:block; }}
+  .muted {{ color:#9AA7B2; font-size:12.5px; }}
 
-  /* header */
   header.hd {{ padding:30px 0 18px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }}
   .eyebrow {{ font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:#1CABE2; font-weight:700; }}
   .h1 {{ font-size:27px; font-weight:700; letter-spacing:-.01em; margin-top:6px; }}
-  .meta {{ text-align:right; font-size:12px; color:#5B7186; line-height:1.6; }}
-  .meta b {{ color:#0F2238; }}
+  .meta {{ text-align:right; font-size:12px; color:#5B7186; line-height:1.6; }} .meta b {{ color:#0F2238; }}
 
-  /* kpi */
+  .viewtab {{ display:inline-flex; gap:8px; margin:6px 0 4px; }}
+  .viewtab .vt {{ font-size:13.5px; font-weight:700; padding:9px 20px; border-radius:9px; border:1px solid #16385C; }}
+  .vt.on {{ background:#16385C; color:#fff; }} .vt.off {{ background:#fff; color:#43586B; border-color:#D5DEE6; }}
+
   .kpistrip {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-top:6px; }}
   .kpi {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; }}
   .kpilabel {{ font-size:12px; color:#5B7186; font-weight:600; }}
-  .kpival {{ font-size:34px; font-weight:700; letter-spacing:-.02em; line-height:1.1; margin:6px 0 4px; font-variant-numeric:tabular-nums; }}
+  .kpival {{ font-size:32px; font-weight:700; letter-spacing:-.02em; line-height:1.1; margin:6px 0 4px; font-variant-numeric:tabular-nums; }}
   .kpisub {{ font-size:11.5px; color:#9AA7B2; }}
 
-  /* section heading */
-  .sec {{ display:flex; align-items:center; gap:12px; margin:34px 0 14px; }}
-  .secn {{ width:26px; height:26px; border-radius:7px; background:#0B6FA4; color:#fff; font-size:13px; font-weight:700;
-          display:flex; align-items:center; justify-content:center; }}
+  .sec {{ display:flex; align-items:center; gap:12px; margin:36px 0 14px; }}
+  .secn {{ width:26px; height:26px; border-radius:7px; color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none; }}
   .sectitle {{ font-size:18px; font-weight:700; letter-spacing:-.01em; }}
-  .secsub {{ font-size:13px; color:#5B7186; margin-left:auto; }}
+  .secsub {{ font-size:13px; color:#5B7186; margin-left:auto; text-align:right; }}
 
   .card {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:20px 22px; }}
-  .cardtitle {{ font-size:13.5px; font-weight:700; margin-bottom:4px; }}
+  .cardtitle {{ font-size:13.5px; font-weight:700; margin-bottom:14px; }}
   .cardnote {{ font-size:12px; color:#8A98A6; line-height:1.55; margin-top:16px; border-top:1px solid #F1F4F7; padding-top:12px; }}
+  .cardnote b, .cardnote strong {{ color:#5B7186; }}
+  .grid2 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:16px; align-items:start; }}
+  .grid3 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr)); gap:16px; align-items:start; }}
+  .mt16 {{ margin-top:16px; }}
 
-  /* legend */
-  .legend {{ display:flex; flex-wrap:wrap; gap:10px 16px; margin:12px 0 18px; }}
+  .legend {{ display:flex; flex-wrap:wrap; gap:10px 16px; margin:0 0 16px; }}
   .lg {{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:#43586B; }}
-  .lgdot {{ width:11px; height:11px; border-radius:3px; display:inline-block; }}
+  .lgdot {{ width:11px; height:11px; border-radius:3px; }}
 
-  /* thematic area rows */
-  .areahead, .arearow {{ display:grid; grid-template-columns:230px 1fr 44px 52px; gap:12px; align-items:center; }}
-  .areahead {{ font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:#9AA7B2; font-weight:700; margin-bottom:10px; }}
-  .areahead .r {{ text-align:right; }}
-  .arearow {{ margin-bottom:12px; }}
+  .blrow {{ display:grid; align-items:center; gap:10px; margin-bottom:9px; }}
+  .bllabel {{ font-size:12px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .bln {{ text-align:right; font-weight:700; font-size:12.5px; font-variant-numeric:tabular-nums; }}
+
+  .arearow {{ display:grid; align-items:center; gap:12px; margin-bottom:11px; }}
   .arealabel {{ font-size:12.5px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
   .an {{ text-align:right; font-weight:700; font-size:13px; font-variant-numeric:tabular-nums; }}
   .al {{ text-align:right; font-size:12.5px; font-weight:700; color:#0B6FA4; font-variant-numeric:tabular-nums; }}
+  .areahead {{ display:grid; grid-template-columns:210px 1fr 44px 52px; gap:12px; font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:#9AA7B2; font-weight:700; margin-bottom:10px; }}
+  .areahead .r {{ text-align:right; }}
 
-  /* flow */
-  .flowintro {{ font-size:13px; color:#5B7186; margin-bottom:16px; }}
-  .flowintro b {{ color:#0B6FA4; font-size:15px; }}
+  .hero {{ border-radius:10px; padding:20px 22px; min-height:216px; display:flex; flex-direction:column; justify-content:center; }}
+  .herolabel {{ font-size:12px; letter-spacing:.06em; text-transform:uppercase; font-weight:700; }}
+  .heroval {{ font-size:52px; font-weight:700; letter-spacing:-.03em; line-height:1; margin:10px 0 6px; font-variant-numeric:tabular-nums; }}
+  .herobody {{ font-size:12.5px; line-height:1.5; }}
+  .minicard {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:20px 22px; min-height:216px; }}
+
+  .mchart {{ display:flex; align-items:flex-end; gap:14px; padding:0 6px; min-width:320px; }}
+  .mcol {{ flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; }}
+  .mpair {{ display:flex; align-items:flex-end; gap:5px; }}
+  .mbarwrap {{ display:flex; flex-direction:column; align-items:center; gap:3px; }}
+  .mval {{ font-size:10.5px; font-weight:700; font-variant-numeric:tabular-nums; }}
+  .mbar {{ width:26px; min-height:2px; border-radius:4px 4px 0 0; }}
+  .mlabel {{ font-size:11.5px; color:#5B7186; font-weight:600; }}
+
+  .table {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; margin-top:16px; overflow:hidden; }}
+  .ttitle {{ font-size:13px; font-weight:700; padding:14px 22px 10px; }}
+  .tscroll {{ overflow-x:auto; }} .tmin {{ min-width:960px; }}
+  .thead, .trow {{ display:grid; grid-template-columns:100px 110px 1.5fr 150px 108px 64px 70px 130px 88px; gap:10px; padding:9px 22px; align-items:center; }}
+  .thead {{ background:#F6F8FA; border-top:1px solid #EDF1F4; border-bottom:1px solid #EDF1F4; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:#7A8C9C; font-weight:700; }}
+  .thead .r {{ text-align:right; }}
+  .tbody {{ max-height:440px; overflow-y:auto; }}
+  .trow {{ border-bottom:1px solid #F1F4F7; font-size:12.5px; }}
+  .tid {{ font-weight:600; color:#0B5A8A; font-variant-numeric:tabular-nums; }}
+  .tclip {{ color:#43586B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .tclip.muted {{ color:#5B7186; }}
+  .tnum {{ color:#43586B; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+  .tmetric {{ text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }}
+  .pill {{ font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:5px; }}
+  .tfoot {{ padding:12px 22px 14px; font-size:11.5px; color:#8A98A6; line-height:1.55; border-top:1px solid #F1F4F7; }}
+
+  .flowintro {{ font-size:13px; color:#5B7186; margin-bottom:16px; }} .flowintro b {{ color:#0B6FA4; font-size:15px; }}
   .hubgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }}
   .hubcard {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:16px 18px; }}
   .hubhead {{ display:flex; align-items:center; gap:9px; }}
@@ -232,29 +485,37 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .hubsub {{ font-size:11.5px; color:#9AA7B2; margin:3px 0 12px 21px; }}
   .destwrap {{ display:flex; flex-wrap:wrap; gap:6px; }}
   .destchip {{ font-size:11.5px; color:#43586B; background:#F1F5F9; border:1px solid #E3E9EF; border-radius:999px; padding:4px 10px; }}
-  .destchip b {{ color:#0B6FA4; }}
-  .destchip.muted {{ color:#9AA7B2; background:transparent; }}
+  .destchip b {{ color:#0B6FA4; }} .destchip.muted {{ color:#9AA7B2; background:transparent; }}
 
-  /* workload */
-  .leadgrid {{ column-count:2; column-gap:40px; }}
-  @media (max-width:820px) {{ .leadgrid {{ column-count:1; }} }}
+  .leadgrid {{ column-count:2; column-gap:40px; }} @media (max-width:820px) {{ .leadgrid {{ column-count:1; }} }}
   .leadrow {{ display:grid; grid-template-columns:190px 1fr 34px; gap:10px; align-items:center; break-inside:avoid; margin-bottom:11px; }}
   .leadlabel {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
   .leadname {{ font-size:12px; color:#43586B; overflow:hidden; text-overflow:ellipsis; }}
   .leadarea {{ font-size:10.5px; color:#9AA7B2; overflow:hidden; text-overflow:ellipsis; }}
   .ln {{ text-align:right; font-weight:700; font-size:12px; font-variant-numeric:tabular-nums; }}
-  .loadstat {{ display:flex; gap:12px; margin:4px 0 4px; }}
+  .loadstat {{ display:flex; gap:12px; margin:16px 0 22px; }}
   .loadbox {{ flex:1; border-radius:9px; padding:13px 16px; }}
   .loadlabel {{ font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; }}
   .loadval {{ font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.15; margin-top:3px; }}
   .loadsub {{ font-size:11px; }}
 
-  /* funnel */
-  .funrow {{ display:grid; grid-template-columns:90px 1fr 40px; gap:12px; align-items:center; margin-bottom:9px; }}
-  .funlabel {{ font-size:12px; color:#43586B; font-weight:600; }}
-  .funn {{ text-align:right; font-weight:700; font-size:12.5px; font-variant-numeric:tabular-nums; }}
+  .sevlegend {{ display:flex; gap:16px; }}
+  .sevbar {{ display:flex; height:30px; border-radius:6px; overflow:hidden; border:1px solid #E3E9EF; }}
+  .sevtags {{ display:flex; gap:24px; margin-top:10px; font-size:12.5px; }}
 
-  .grid2 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr)); gap:16px; align-items:start; }}
+  .crow {{ display:grid; grid-template-columns:170px 1fr 44px; gap:12px; align-items:center; margin-bottom:10px; }}
+  .clabel {{ font-size:12.5px; color:#43586B; font-weight:600; }}
+  .cpct {{ text-align:right; font-weight:700; font-size:12.5px; }}
+  .score {{ font-size:46px; font-weight:700; letter-spacing:-.02em; line-height:1; }}
+  .check {{ display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid #F1F4F7; }}
+  .checkn {{ font-size:22px; font-weight:700; min-width:44px; font-variant-numeric:tabular-nums; }}
+  .checklabel {{ font-size:13px; font-weight:700; color:#0F2238; }}
+  .checksub {{ font-size:11.5px; color:#8A98A6; }}
+  .banner {{ border-radius:10px; padding:16px 20px; margin-top:16px; font-size:12.5px; line-height:1.55; }}
+  .tcards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }}
+  .tcard {{ background:#F6F8FA; border:1px solid #EDF1F4; border-radius:9px; padding:14px 16px; }}
+  .tcardlabel {{ font-size:13px; font-weight:700; color:#0F2238; }}
+  .tcardsub {{ font-size:11.5px; color:#8A98A6; margin-top:3px; }}
 </style></head>
 <body>
 <div class="wrap">
@@ -265,69 +526,147 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       <div class="h1">Nutrition TA Performance Dashboard</div>
     </div>
     <div class="meta">
-      <div><b>{len(live)}</b> nutrition TA requests &middot; <b>{len(staff)}</b> team members</div>
+      <div><b>{len(PERF)}</b> CO requests &middot; <b>{len(staff)}</b> team members</div>
       <div>Created Jan&ndash;Jul 2026 &middot; as of 24 Jul 2026</div>
     </div>
   </header>
 
-  <div class="kpistrip">{kpi_html}
+  <div class="viewtab"><span class="vt on">Performance</span><span class="vt off">Data Quality Review</span></div>
+
+  {perf_kpis}
+
+  {section(1, 'Demand, delivery & status')}
+  <div class="card">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
+      <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
+      <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Opened</div><div class="lg"><span class="lgdot" style="background:#2E7D5B"></span>Completed</div></div>
+    </div>
+    <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
+    <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
   </div>
 
-  <!-- SECTION 1: thematic areas -->
-  <div class="sec"><div class="secn">1</div><div class="sectitle">Requests by thematic area</div>
-    <div class="secsub">{len(area_rows)} thematic areas &middot; bar coloured by implementation status</div></div>
+  <div class="grid3 mt16">
+    {hero('#EAF2F8', '#CFE0EE', '#0B6FA4', len(recent), '#0B6FA4', 'Received in last 30 days', 'new TA requests opened between 24 Jun and 24 Jul 2026.', '#3E6178')}
+    <div class="minicard"><div class="cardtitle">New by thematic area</div>{barlist(recent_area, '#0B6FA4', label_w=150)}</div>
+    <div class="minicard"><div class="cardtitle">On track by thematic area</div>{barlist(ontrack_area, '#3E9CD6', '#E4EFF6', label_w=150)}</div>
+  </div>
+
+  <div class="grid3 mt16">
+    {hero('#EAF2F8', '#CFE0EE', '#3E9CD6', onTrack, '#3E9CD6', 'Active &amp; on track', 'requests in progress whose expected completion date has not yet passed.', '#3E6178')}
+    <div class="minicard"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
+    <div class="minicard"><div class="cardtitle">Status legend</div><div style="margin-top:6px">{''.join(f'<div class="lg" style="margin-bottom:7px"><span class="lgdot" style="background:{SC[s]}"></span>{s}</div>' for s in STATUS_ORDER)}</div></div>
+  </div>
+
+  {req_table('Newest requests (last 30 days)', newest, 'Age (days)', '#0B6FA4')}
+
+  {section(2, 'Cycle time: opening, response & closure')}
+  {mgmt_kpis}
+  <div class="card mt16">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px"><div class="cardtitle" style="margin:0">Average response time after assignment, by thematic area</div><div class="muted">coming soon</div></div>
+    <div class="muted">This measure requires an assignment date, which is not yet captured at source. Space reserved here for when that data becomes available.</div>
+  </div>
+
+  {section(3, 'Overdue requests', bg='#C0453F')}
+  <div class="grid3">
+    {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(overdue), '#C0453F', 'Should be closed by now', 'active requests past their expected completion date but not yet at 100%.', '#8A5450')}
+    <div class="minicard"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
+    <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(ob, label_w=92)}</div></div>
+  </div>
+  <div class="card mt16">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
+      <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
+    <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
+    <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
+    <div class="cardnote"><strong>What this says:</strong> most overdue requests are less than 30 days late. The <b style="color:#C0453F">&gt;60 days</b> group needs its expected completion dates reviewed — targets are no longer credible and need re-planning or closure.</div>
+  </div>
+  <div class="card mt16">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
+      <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
+    {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
+  </div>
+  <div class="banner" style="background:rgba(224,162,30,0.12);border:1px solid rgba(224,162,30,0.35);color:#7A5B10"><strong style="color:#5B7186">What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
+  {req_table('Most overdue active requests', overdue[:14], 'Days over', '#C0453F', footer='Days over = today (24 Jul 2026) − the request’s Expected Completion Date, counting only active requests (below 100%) whose target date has already passed.')}
+
+  {section(4, 'Workload: thematic areas & staff', bg='#16385C')}
   <div class="card">
-    <div class="legend">{legend_html}</div>
+    <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
+    <div class="legend">{legend()}</div>
     <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
-    {area_html}
-    <div class="cardnote"><b style="color:#5B7186">What this says:</b> with the whole dashboard now scoped to one team, thematic area &mdash; not practice or region &mdash; is the meaningful way to see where nutrition TA demand concentrates. <b>Food Systems for Children</b> and <b>Maternal Nutrition</b> carry the largest share.</div>
+    {area_status_rows(groupby_area(PERF))}
   </div>
-
-  <!-- SECTION 2: where support flows -->
-  <div class="sec"><div class="secn">2</div><div class="sectitle">Where support flows</div>
-    <div class="secsub">from staff duty station &rarr; supported country</div></div>
-  <div class="card">
-    <div class="flowintro"><b>{n_hubs}</b> support hubs providing technical assistance to <b>{n_countries}</b> countries. Origin is each request's TA lead duty station; destination is the country office being supported.</div>
-    <div class="hubgrid">{flow_html}
-    </div>
-    <div class="cardnote"><b style="color:#5B7186">What this says:</b> most nutrition TA is delivered remotely across regions &mdash; a lead in Nairobi or Bangkok supporting country offices worldwide. The <b>Not recorded</b> group is requests whose lead has no duty station in the staff roster; capturing that would complete the origin picture.</div>
-  </div>
-
-  <!-- SECTION 3: workload -->
-  <div class="sec"><div class="secn">3</div><div class="sectitle">Team workload</div>
-    <div class="secsub">{len(lead_rows)} TA leads &middot; requests per lead</div></div>
-  <div class="grid2">
+  <div class="grid2 mt16">
     <div class="card">
-      <div class="cardtitle">Workload spread</div>
+      <div class="cardtitle">Requests per TA lead — workload spread</div>
+      <div style="font-size:13px;color:#5B7186;margin-bottom:2px"><b style="color:#0B6FA4;font-size:15px">{len(lead_groups)}</b> TA leads assigned</div>
       <div class="loadstat">
-        <div class="loadbox" style="background:#F6F8FA;border:1px solid #EDF1F4">
-          <div class="loadlabel" style="color:#7A8C9C">Minimum</div>
-          <div class="loadval" style="color:#2E7D5B">{load_min}</div>
-          <div class="loadsub" style="color:#9AA7B2">lightest lead</div></div>
-        <div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2">
-          <div class="loadlabel" style="color:#2C5A75">Average</div>
-          <div class="loadval" style="color:#0B6FA4">{load_avg:.1f}</div>
-          <div class="loadsub" style="color:#7FA6BE">requests per lead</div></div>
-        <div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF">
-          <div class="loadlabel" style="color:#B0453F">Maximum</div>
-          <div class="loadval" style="color:#C0453F">{load_max}</div>
-          <div class="loadsub" style="color:#C79490">{esc(lead_rows[0][0])}</div></div>
+        <div class="loadbox" style="background:#F6F8FA;border:1px solid #EDF1F4"><div class="loadlabel" style="color:#7A8C9C">Minimum</div><div class="loadval" style="color:#2E7D5B">{load_min}</div><div class="loadsub" style="color:#9AA7B2">lightest lead</div></div>
+        <div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Average</div><div class="loadval" style="color:#0B6FA4">{load_avg:.1f}</div><div class="loadsub" style="color:#7FA6BE">requests per lead</div></div>
+        <div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">Maximum</div><div class="loadval" style="color:#C0453F">{load_max}</div><div class="loadsub" style="color:#C79490">{esc(lead_groups[0][0])}</div></div>
       </div>
-      <div class="cardnote" style="margin-top:8px"><b style="color:#5B7186">What this says:</b> workload ranges from {load_min} to {load_max} requests per lead, averaging {load_avg:.1f}. Bars at right are coloured by implementation status.</div>
+      <div style="position:relative;height:10px;border-radius:5px;margin:6px 4px 0;background:linear-gradient(90deg,#4CA576,#5BA3D0,#C0453F)"><div style="position:absolute;top:-5px;left:{pct(round(load_avg)-load_min, max(1,load_max-load_min))}%;transform:translateX(-50%);width:3px;height:20px;background:#0F2238;border-radius:2px"></div></div>
+      <div style="display:flex;justify-content:space-between;margin:9px 4px 0;font-size:11px;color:#7A8C9C"><span>Min {load_min}</span><span style="color:#0F2238;font-weight:700">Avg {load_avg:.1f}</span><span>Max {load_max}</span></div>
     </div>
     <div class="card">
-      <div class="cardtitle">Overall implementation status</div>
-      <div style="margin-top:14px">{funnel_html}
-      </div>
+      <div class="cardtitle">Busiest TA lead staff — coloured by status</div>
+      <div class="legend">{legend()}</div>
+      <div class="leadgrid">{lead_html}</div>
     </div>
   </div>
 
-  <div class="card" style="margin-top:16px">
-    <div class="cardtitle" style="margin-bottom:16px">Requests per TA lead &mdash; coloured by status</div>
-    <div class="legend">{legend_html}</div>
-    <div class="leadgrid">{lead_html}
+  {section(5, 'Where support flows', 'staff duty station → supported country', bg='#0B6FA4')}
+  <div class="card">
+    <div class="flowintro"><b>{n_hubs}</b> support hubs providing technical assistance to <b>{n_countries}</b> countries. Origin is each request's TA-lead duty station; destination is the supported country office.</div>
+    <div class="hubgrid">{flow_html}</div>
+    <div class="cardnote"><strong>What this says:</strong> most nutrition TA is delivered remotely — leads in Nairobi, Bangkok, Brussels and Panama support country offices worldwide. The <b>Not recorded</b> group is requests whose lead has no duty station in the roster; capturing that would complete the origin picture.</div>
+  </div>
+
+  <div class="viewtab" style="margin-top:44px"><span class="vt off">Performance</span><span class="vt on">Data Quality Review</span></div>
+  <div style="font-size:13px;color:#5B7186;margin:10px 0 4px;max-width:900px;line-height:1.5">Data quality read through the implementation-status lifecycle: <b>setup / in review</b> (Unassigned · 0% · 25%) where the concern is stalling, and <b>delivery / started</b> (50%+) where the concern is completeness &amp; consistency.</div>
+  {dq_kpis}
+
+  {section(1, 'Received & in review', 'Unassigned · 0% · 25%', bg='#E0A21E')}
+  <div class="grid2">
+    <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
+    <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
+  </div>
+  <div class="grid3 mt16">
+    <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
+    <div class="card"><div class="cardtitle">Unassigned, by thematic area</div>{barlist(unassigned_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
+    <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
+  </div>
+  <div class="grid2 mt16">
+    <div class="card"><div class="cardtitle">Ready to advance</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#2E7D5B">{len(ready)}</div><div class="muted">of {len(at25)} requests at 25% have objectives, a lead and a target date</div></div></div>
+    <div class="card"><div class="cardtitle">Setup contradictions</div>{checkitems([(len(no_lead), 'Past assignment, but no TA lead', '0% or 25% means a lead should already be assigned', '#C0453F')])}</div>
+  </div>
+  <div class="card mt16"><div class="cardtitle">Stage transitions (days) — coming soon</div>
+    <div class="tcards">{''.join(f'<div class="tcard"><div class="tcardlabel">{l}</div><div class="tcardsub">{s}</div></div>' for l,s in [('Unassigned → 0%','days to assign a TA lead'),('0% → 25%','days to agree scope with the CO'),('25% → 50%','days to formally start delivery')])}</div>
+  </div>
+  {req_table('Most stalled setup requests', stalled_table_rows, 'Days stalled', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days stalled'])}
+
+  {section(2, 'Started & in delivery', '50%+ · completeness & consistency', bg='#0B6FA4')}
+  <div class="grid2">
+    <div class="card"><div class="cardtitle">Field completeness ({delN} in delivery)</div>{completeness_rows()}</div>
+    <div class="card"><div class="cardtitle">Delivery quality score</div>
+      <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px"><div class="score" style="color:{'#2E7D5B' if score>=80 else '#E0A21E' if score>=60 else '#C0453F'}">{score}%</div><div class="muted">{passN} of {delN} pass every check</div></div>
+      <div class="cardnote" style="margin-top:14px"><strong>What this says:</strong> a request passes when it has objectives, a lead, a target date, a description, a modality and a programme offer — and its completion target is not before its start.</div>
     </div>
   </div>
+  <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
+  <div class="grid2 mt16">
+    <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
+    <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
+  </div>
+  {req_table('Requests needing cleanup', flagRecords[:14], 'Flag', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Flag'])}
+
+  {section(3, 'Overdue, at-risk & closure', bg='#C0453F')}
+  <div class="grid3">
+    {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
+    <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(dq_ob, label_w=92)}</div></div>
+    <div class="minicard"><div class="cardtitle">At risk (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
+  </div>
+  <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
+  {req_table('Most overdue requests', dq_overdue[:14], 'Days over', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days over'])}
+  {req_table('Completed / discontinued but not closed', not_closed[:14], 'Outcome', '#E0A21E', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Outcome'])}
 
 </div>
 </body></html>'''
@@ -335,6 +674,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 with open(f'{OUT}/nutrition-ta-dashboard.html', 'w', encoding='utf-8') as f:
     f.write(PAGE)
 print('wrote', f'{OUT}/nutrition-ta-dashboard.html', f'({len(PAGE)} bytes)')
-print('thematic areas:', len(area_rows), '| hubs:', ordered_hubs, '| leads:', len(lead_rows))
-print('KPIs: total', len(live), 'recent', len(recent), 'ontrack', len(ontrack),
-      'overdue', len(overdue), 'completed-vs-target', f'{pct(len(done_due),len(due))}%')
+print('PERF universe:', len(PERF), '| active:', len(active), '| overdue:', len(overdue),
+      '| onTrack:', onTrack, '| recent:', len(recent))
+print('DQ: setup', len(setupSet), 'delivery', delN, 'score', f'{score}%',
+      'flags', len(flagRecords), 'dq_overdue', len(dq_overdue), 'not_closed', len(not_closed), 'dup', dup)
