@@ -34,4 +34,20 @@ export interface TACase {
   ho: 0 | 1;
   /** expected-completion quarter label, e.g. "2026 Q2" (derived at load) */
   q?: string;
+  /** TA lead's title, from the staff roster join on lead = staff name (derived at load) */
+  leadTitle?: string;
+  /** TA lead's thematic area, from the staff roster join (derived at load) */
+  leadArea?: string;
+  /** TA lead's duty-station location, from the staff roster join (derived at load) */
+  leadLocation?: string;
+}
+
+/** One member of the CND staff roster (see scripts/extract_staff.py). */
+export interface Staff {
+  name: string;
+  title: string;
+  /** thematic area / sub-team, e.g. "Food Systems for Children" */
+  area: string;
+  /** duty station, e.g. "Nairobi" (blank when not recorded) */
+  location: string;
 }

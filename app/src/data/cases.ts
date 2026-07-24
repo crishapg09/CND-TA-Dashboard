@@ -1,19 +1,38 @@
 import rawCases from './cases.json';
 import rawToday from './today.json';
-import type { TACase } from './types';
+import rawStaff from './staff.json';
+import type { TACase, Staff } from './types';
 import { quarter } from '../lib/dates';
 import { mapOffice } from '../lib/regionMap';
 
 /**
- * Source: UNICEF TA case export, Jan–Jul 2026 (4,369 rows, as of 22 Jul 2026).
+ * The CND staff roster, keyed by name for the case join.
+ * Source: CND_staff export (see scripts/extract_staff.py).
+ */
+export const STAFF = rawStaff as unknown as Staff[];
+const STAFF_BY_NAME = new Map(STAFF.map((s) => [s.name, s]));
+
+/**
+ * Source: UNICEF TA case export, Jan–Jul 2026 (353 rows, as of 24 Jul 2026).
  * Dates are Excel serial day numbers (matches the source export).
  * Each record's office and region are corrected via the Regions & Countries
  * reference (see lib/regionMap), and annotated with its expected-completion
- * quarter (`q`). Offices the reference doesn't cover fall into region "Unmapped".
+ * quarter (`q`). The TA lead ("Assigned to") is joined to the staff roster on
+ * lead = staff name, attaching the lead's title, thematic area and location.
+ * Offices the reference doesn't cover fall into region "Unmapped".
  */
 export const RAW_CASES = (rawCases as unknown as TACase[]).map((c) => {
   const { office, region } = mapOffice(c.office);
-  return { ...c, office, region, q: quarter(c.xc) };
+  const staff = c.lead ? STAFF_BY_NAME.get(c.lead) : undefined;
+  return {
+    ...c,
+    office,
+    region,
+    q: quarter(c.xc),
+    leadTitle: staff?.title || '',
+    leadArea: staff?.area || '',
+    leadLocation: staff?.location || '',
+  };
 });
 
 /**

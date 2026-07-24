@@ -223,7 +223,7 @@ export function PerformanceView({ d }: { d: Dashboard }) {
 
       {/* received last 30 days */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(230px, 100%), 1fr))', gap: 16, marginTop: 16, alignItems: 'start' }}>
-        <Hero bg="#EAF2F8" border="#CFE0EE" labelColor="#0B6FA4" value={d.recent} valueColor="#0B6FA4" label="Received in last 30 days" body="new TA requests opened between 22 Jun and 22 Jul 2026." bodyColor="#3E6178" />
+        <Hero bg="#EAF2F8" border="#CFE0EE" labelColor="#0B6FA4" value={d.recent} valueColor="#0B6FA4" label="Received in last 30 days" body="new TA requests opened between 24 Jun and 24 Jul 2026." bodyColor="#3E6178" />
         <div style={{ background: '#fff', border: '1px solid #E3E9EF', borderRadius: 10, padding: '20px 22px', height: 216, boxSizing: 'border-box' }}>
           <div style={cardTitle}>New by region</div>
           <BarList rows={d.recentByRegion} labelWidth={64} trackBg="#E9F0F6" />
@@ -325,7 +325,7 @@ export function PerformanceView({ d }: { d: Dashboard }) {
         rows={d.overdueTableFinal}
         metricLabel="Days over"
         daysColor="#C0453F"
-        footer="Days over = today (22 Jul 2026) − the request’s Expected Completion Date, counting only active requests (implementation status below 100%) whose target date has already passed."
+        footer="Days over = today (24 Jul 2026) − the request’s Expected Completion Date, counting only active requests (implementation status below 100%) whose target date has already passed."
       />
 
       </>
@@ -390,7 +390,10 @@ export function PerformanceView({ d }: { d: Dashboard }) {
         <div style={{ columnCount: 2, columnGap: 40, maxHeight: 340, overflowY: 'auto', paddingRight: 6 }}>
           {d.staffBars.map((row) => (
             <div key={row.label} style={{ display: 'grid', gridTemplateColumns: '185px 1fr 34px', alignItems: 'center', gap: 10, breakInside: 'avoid', marginBottom: 11 }}>
-              <div style={{ fontSize: 12, color: '#43586B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</div>
+              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 12, color: '#43586B', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</div>
+                {row.sub && <div style={{ fontSize: 10.5, color: '#9AA7B2', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.sub}</div>}
+              </div>
               <StackTrack row={row} height={11} />
               <div style={{ fontSize: 12, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.n}</div>
             </div>
