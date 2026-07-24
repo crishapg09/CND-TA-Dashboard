@@ -674,6 +674,14 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 with open(f'{OUT}/nutrition-ta-dashboard.html', 'w', encoding='utf-8') as f:
     f.write(PAGE)
 print('wrote', f'{OUT}/nutrition-ta-dashboard.html', f'({len(PAGE)} bytes)')
+
+# Artifact-friendly partial: Artifacts inject their own <!doctype>/<head>/<body>,
+# so emit just the <style> block plus the page content (no document wrappers).
+style = PAGE[PAGE.index('<style>'):PAGE.index('</style>') + len('</style>')]
+inner = PAGE[PAGE.index('<div class="wrap">'):PAGE.index('</body>')]
+with open(f'{OUT}/nutrition-ta-dashboard.artifact.html', 'w', encoding='utf-8') as f:
+    f.write(style + '\n' + inner)
+print('wrote', f'{OUT}/nutrition-ta-dashboard.artifact.html')
 print('PERF universe:', len(PERF), '| active:', len(active), '| overdue:', len(overdue),
       '| onTrack:', onTrack, '| recent:', len(recent))
 print('DQ: setup', len(setupSet), 'delivery', delN, 'score', f'{score}%',
