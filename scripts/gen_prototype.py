@@ -514,7 +514,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nutrition TA Performance Dashboard</title>
+<title>Nutrition TA Management Dashboard</title>
 <style>
   * {{ box-sizing:border-box; }}
   body {{ margin:0; background:#EDF1F4; color:#0F2238; font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }}
@@ -704,7 +704,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   <header class="hd">
     <div>
       <div class="eyebrow">Child Nutrition &amp; Development &middot; Technical Assistance</div>
-      <div class="h1">Nutrition TA Performance Dashboard</div>
+      <div class="h1">Nutrition TA Management Dashboard</div>
     </div>
     <div class="meta">
       <div><b>{len(PERF)}</b> CO requests &middot; <b>{len(staff)}</b> team members</div>
@@ -713,8 +713,8 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   </header>
 
   <div class="tabs">
-    <button class="tab on" data-top="perf" onclick="showTop('perf')">Performance</button>
-    <button class="tab" data-top="dq" onclick="showTop('dq')">Data Quality Review</button>
+    <button class="tab on" data-top="perf" onclick="showTop('perf')">Management</button>
+    <button class="tab" data-top="dq" onclick="showTop('dq')">Data Quality</button>
   </div>
 
   <!-- ============ PERFORMANCE ============ -->
