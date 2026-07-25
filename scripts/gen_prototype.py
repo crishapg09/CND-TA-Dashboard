@@ -185,10 +185,12 @@ for label, o, d in io:
                 f'</div><div class="mlabel">{label}</div></div>')
 io_opened = sum(o for _, o, _ in io); io_done = sum(d for _, _, d in io)
 
-# received last 30 / on track / overdue — by thematic area
+# received last 30 / on track / overdue / completed — by thematic area
 recent_area = [(k, len(v)) for k, v in groupby_area(recent)]
 ontrack_area = [(k, len(v)) for k, v in groupby_area(ontrackSet)]
 overdue_area = [(k, len(v)) for k, v in groupby_area(overdue)]
+completed_perf = [c for c in PERF if c['status'] == '100%']
+completed_area = [(k, len(v)) for k, v in groupby_area(completed_perf)]
 
 # newest + overdue tables
 for c in cases: c['_m'] = ''
@@ -553,7 +555,9 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .cardnote b, .cardnote strong {{ color:#5B7186; }}
   .grid2 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:16px; align-items:stretch; }}
   .grid3 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr)); gap:16px; align-items:stretch; }}
-  .grid2 > *, .grid3 > * {{ height:100%; }}
+  .grid13 {{ display:grid; grid-template-columns:1fr 2fr; gap:16px; align-items:stretch; }}
+  @media (max-width:720px) {{ .grid13 {{ grid-template-columns:1fr; }} }}
+  .grid2 > *, .grid3 > *, .grid13 > * {{ height:100%; }}
   .mt16 {{ margin-top:16px; }}
 
   .legend {{ display:flex; flex-wrap:wrap; gap:10px 16px; margin:0 0 16px; }}
@@ -739,13 +743,17 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
         <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
       </div>
-      <div class="grid2 mt16">
+      <div class="grid13 mt16">
         {hero('#EAF2F8', '#CFE0EE', '#0B6FA4', len(recent), '#0B6FA4', 'Received in last 30 days', 'new TA requests opened between 24 Jun and 24 Jul 2026.', '#3E6178')}
-        <div class="card"><div class="cardtitle">New by thematic area</div>{barlist(recent_area, '#0B6FA4', label_w=170)}</div>
+        <div class="card"><div class="cardtitle">New by thematic area</div>{barlist(recent_area, '#0B6FA4', label_w=250)}</div>
       </div>
-      <div class="grid2 mt16">
+      <div class="grid13 mt16">
         {hero('#EAF2F8', '#CFE0EE', '#3E9CD6', onTrack, '#3E9CD6', 'Active &amp; on track', 'requests in progress whose expected completion date has not yet passed.', '#3E6178')}
-        <div class="card"><div class="cardtitle">On track by thematic area</div>{barlist(ontrack_area, '#3E9CD6', '#E4EFF6', label_w=170)}</div>
+        <div class="card"><div class="cardtitle">On track by thematic area</div>{barlist(ontrack_area, '#3E9CD6', '#E4EFF6', label_w=250)}</div>
+      </div>
+      <div class="grid13 mt16">
+        {hero('#EAF4EE', '#CFE6D8', '#2E7D5B', len(completed_perf), '#2E7D5B', 'Completed', 'TA requests that have reached 100% implementation.', '#4A6B58')}
+        <div class="card"><div class="cardtitle">Completed by thematic area</div>{barlist(completed_area, '#2E7D5B', '#E6F1EB', label_w=250)}</div>
       </div>
       {req_table('Newest requests (last 30 days)', newest, 'Age (days)', '#0B6FA4')}
     </div>
