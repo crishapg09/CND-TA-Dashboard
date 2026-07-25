@@ -333,14 +333,16 @@ for L in LOC_ORDER:
     loc_tabs += (f'<button class="loctab{on}" data-loc="{slug(L)}" onclick="showLoc(\'{slug(L)}\')">'
                  f'<span class="ltdot" style="background:{LOC_COLOR[L]}"></span>{esc(L)} <b>{loc_total.get(L, 0)}</b></button>')
 
-def status_waffle(counter, cls=''):
-    """A unit chart: one little square per TA request, coloured by implementation status."""
+def status_waffle(counter, cls='', label=None):
+    """A unit chart: one little square per TA request, coloured by implementation
+    status. `label` (the total) renders right after the last square."""
     sq = ''
     for s in STATUS_ORDER:
         n = counter.get(s, 0)
         if n:
             sq += f'<span class="sq" style="background:{SC[s]}"></span>' * n
-    return f'<div class="waffle {cls}">{sq}</div>'
+    tail = f'<span class="stn">{label}</span>' if label is not None else ''
+    return f'<div class="waffle {cls}">{sq}{tail}</div>'
 
 def build_loc_bars(L, areas):
     """Collapsible thematic areas; each shows a square per TA (coloured by status).
@@ -359,7 +361,7 @@ def build_loc_bars(L, areas):
         for st, tot in sorted(staff_tot.items(), key=lambda kv: -kv[1]):
             stname = '— unassigned —' if st == '(unassigned lead)' else st
             staff_rows += (f'<div class="strow"><div class="stname">{esc(stname)}</div>'
-                           f'{status_waffle(staff_map[st], "sub")}<div class="stn">{tot}</div></div>')
+                           f'{status_waffle(staff_map[st], "sub", tot)}</div>')
         nstaff = len(staff_map)
         ncountries = len(loc_area_countries[L].get(area, ()))
         out += (f'<details class="areadet"><summary class="asum"><div class="arow">'
@@ -386,7 +388,6 @@ for L in LOC_ORDER:
                f'{"s" if n_areas != 1 else ""} · {loc_total.get(L, 0)} requests led')
     loc_panels += (f'<div class="locpanel" data-loc="{slug(L)}" style="display:{disp}">'
                    f'<div class="locsummary">{summary}</div>'
-                   f'<div class="clicknote">Click a thematic area to see the staff assigned</div>'
                    f'{build_loc_bars(L, areas)}</div>')
 
 # ======================================================================
@@ -621,7 +622,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .loctab.on b {{ color:#fff; }}
   .ltdot {{ width:9px; height:9px; border-radius:3px; }}
   .locsummary {{ font-size:12.5px; color:#5B7186; margin-bottom:8px; }}
-  .clicknote {{ font-size:11.5px; color:#0B6FA4; background:#EFF5FA; border:1px solid #DBE8F2; border-radius:7px; padding:7px 11px; margin-bottom:16px; display:inline-block; }}
+  .clicknote {{ font-size:11.5px; color:#0B6FA4; background:#EFF5FA; border:1px solid #DBE8F2; border-radius:7px; padding:7px 11px; display:inline-block; }}
   .areadet {{ border-top:1px solid #F1F4F7; }}
   .areadet:last-child {{ border-bottom:1px solid #F1F4F7; }}
   .asum {{ list-style:none; cursor:pointer; padding:12px 4px; }}
@@ -636,14 +637,15 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .astat b {{ color:#0F2238; font-size:14.5px; font-weight:700; font-variant-numeric:tabular-nums; margin-right:2px; }}
   @media (max-width:620px) {{ .astat {{ font-size:11px; }} .astats {{ gap:12px; }} }}
   .staffwrap {{ margin:0 0 14px 30px; padding:6px 0 6px 14px; border-left:2px solid #EDF1F4; }}
-  .strow {{ display:grid; grid-template-columns:minmax(140px,200px) 1fr 34px; gap:14px; align-items:center; margin-bottom:8px; }}
+  .strow {{ display:grid; grid-template-columns:minmax(140px,200px) 1fr; gap:14px; align-items:center; margin-bottom:8px; }}
   .stname {{ font-size:12px; color:#43586B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-  .stn {{ text-align:right; font-size:12px; font-weight:700; color:#5B7186; font-variant-numeric:tabular-nums; }}
-  .waffle {{ display:flex; flex-wrap:wrap; gap:3px; align-content:center; }}
+  .stn {{ font-size:12px; font-weight:700; color:#43586B; font-variant-numeric:tabular-nums; margin-left:5px; }}
+  .waffle {{ display:flex; flex-wrap:wrap; gap:3px; align-items:center; }}
   .sq {{ width:10px; height:10px; border-radius:2px; }}
   .waffle.sub .sq {{ width:9px; height:9px; }}
-  .statuslegend {{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin-top:20px; padding-top:14px; border-top:1px solid #F1F4F7; }}
-  .sllabel {{ font-size:11.5px; color:#5B7186; font-weight:600; margin-right:4px; }}
+  .lochdr {{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; margin-bottom:16px; }}
+  .statuslegend {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; }}
+  .sllabel {{ font-size:11.5px; color:#5B7186; font-weight:600; }}
 
   /* map hover tooltip */
   .maptip {{ position:fixed; z-index:100; pointer-events:none; display:none; background:#0F2238; color:#fff; border-radius:9px; padding:11px 13px; font-size:12px; max-width:300px; box-shadow:0 8px 26px rgba(15,34,56,.32); }}
@@ -788,8 +790,11 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       <div class="card mt16">
         <div class="cardtitle">By Centre-of-Excellence location — thematic areas &amp; staff assigned</div>
         <div class="loctabs">{loc_tabs}</div>
+        <div class="lochdr">
+          <div class="clicknote">Click a thematic area to see the staff assigned</div>
+          <div class="statuslegend"><span class="sllabel">Each square = 1 request, by status</span>{legend()}</div>
+        </div>
         {loc_panels}
-        <div class="statuslegend"><span class="sllabel">Each square is one request · coloured by implementation status</span>{legend()}</div>
         <div class="cardnote"><strong>What this says:</strong> pick a duty station to see how its TA load splits across thematic areas and which staff carry each area. With the full roster joined in, origins resolve for <b>{n_resolved}</b> of {len(flowcases)} requests — up from 141. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)}); only {n_blank + n_unassigned} requests still lack an origin.</div>
       </div>
     </div>
