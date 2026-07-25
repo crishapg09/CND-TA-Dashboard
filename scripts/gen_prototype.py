@@ -795,7 +795,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
           <div class="statuslegend"><span class="sllabel">Each square = 1 request, by status</span>{legend()}</div>
         </div>
         {loc_panels}
-        <div class="cardnote"><strong>What this says:</strong> pick a duty station to see how its TA load splits across thematic areas and which staff carry each area. With the full roster joined in, origins resolve for <b>{n_resolved}</b> of {len(flowcases)} requests — up from 141. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)}); only {n_blank + n_unassigned} requests still lack an origin.</div>
+        <div class="cardnote"><strong>What this says:</strong> select a CoE location to see how its TA load splits across thematic areas and staff assigned. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)})</div>
       </div>
     </div>
 
