@@ -290,8 +290,13 @@ loc_total = Counter(loc_key(c) for c in flowcases)
 loc_leadcount = {L: len({c['lead'] for c in flowcases if loc_key(c) == L and c['lead']}) for L in LOC_ORDER}
 # location -> thematic area -> staff -> Counter(implementation status)
 loc_area = {L: defaultdict(lambda: defaultdict(Counter)) for L in LOC_ORDER}
+# location -> thematic area -> set of supported country offices
+loc_area_countries = {L: defaultdict(set) for L in LOC_ORDER}
 for c in flowcases:
-    loc_area[loc_key(c)][c['area']][c['lead'] or '(unassigned lead)'][c['status']] += 1
+    L = loc_key(c)
+    loc_area[L][c['area']][c['lead'] or '(unassigned lead)'][c['status']] += 1
+    if c['office']:
+        loc_area_countries[L][c['area']].add(c['office'])
 
 # per-hub tooltip content for the map (thematic areas + staff-per-area, countries supported)
 station_tips = {}
@@ -356,12 +361,15 @@ def build_loc_bars(L, areas):
             staff_rows += (f'<div class="strow"><div class="stname">{esc(stname)}</div>'
                            f'{status_waffle(staff_map[st], "sub")}<div class="stn">{tot}</div></div>')
         nstaff = len(staff_map)
+        ncountries = len(loc_area_countries[L].get(area, ()))
         out += (f'<details class="areadet"><summary class="asum"><div class="arow">'
                 f'<span class="chev">&#9656;</span>'
                 f'<div class="aname">{esc(aname)}</div>'
-                f'{status_waffle(area_status)}'
-                f'<div class="acount" style="color:{col}">{atot}</div>'
-                f'<div class="astaffn">{nstaff} staff</div></div></summary>'
+                f'<div class="astats">'
+                f'<span class="astat"><b style="color:{col}">{atot}</b> requests</span>'
+                f'<span class="astat"><b>{nstaff}</b> staff</span>'
+                f'<span class="astat"><b>{ncountries}</b> countries</span>'
+                f'</div></div></summary>'
                 f'<div class="staffwrap">{staff_rows}</div></details>')
     return out
 
@@ -619,12 +627,14 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .asum {{ list-style:none; cursor:pointer; padding:12px 4px; }}
   .asum::-webkit-details-marker {{ display:none; }}
   .asum:hover .aname {{ color:#0B5A8A; }}
-  .arow {{ display:grid; grid-template-columns:16px minmax(140px,220px) 1fr 46px 62px; gap:14px; align-items:center; }}
+  .arow {{ display:grid; grid-template-columns:16px 1fr auto; gap:16px; align-items:center; }}
   .chev {{ color:#9AA7B2; font-size:13px; transition:transform .15s ease; }}
   details[open] .chev {{ transform:rotate(90deg); }}
-  .aname {{ font-size:13px; font-weight:700; color:#0F2238; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-  .acount {{ text-align:right; font-weight:700; font-size:13.5px; font-variant-numeric:tabular-nums; }}
-  .astaffn {{ text-align:right; font-size:11px; color:#9AA7B2; font-variant-numeric:tabular-nums; }}
+  .aname {{ font-size:13.5px; font-weight:700; color:#0F2238; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .astats {{ display:flex; gap:20px; }}
+  .astat {{ font-size:12px; color:#8593A1; white-space:nowrap; }}
+  .astat b {{ color:#0F2238; font-size:14.5px; font-weight:700; font-variant-numeric:tabular-nums; margin-right:2px; }}
+  @media (max-width:620px) {{ .astat {{ font-size:11px; }} .astats {{ gap:12px; }} }}
   .staffwrap {{ margin:0 0 14px 30px; padding:6px 0 6px 14px; border-left:2px solid #EDF1F4; }}
   .strow {{ display:grid; grid-template-columns:minmax(140px,200px) 1fr 34px; gap:14px; align-items:center; margin-bottom:8px; }}
   .stname {{ font-size:12px; color:#43586B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
@@ -936,6 +946,8 @@ function applyHub(){{
   }}
   var bubs=document.querySelectorAll('.wmbub');
   for(var k=0;k<bubs.length;k++){{ bubs[k].style.opacity=(selHub===null||bubs[k].getAttribute('data-hub')===selHub)?'':'0.28'; }}
+  // drive the "By CoE location" graph below: selected hub, or Nairobi by default
+  showLoc(selHub || 'nairobi');
   var hint=document.getElementById('wmhint');
   if(hint) hint.textContent = selHub===null ? hint.getAttribute('data-idle')
     : 'Highlighting the countries this duty station supports — click it again, or the map, to reset.';

@@ -189,14 +189,16 @@ def build_world_map(stations, office_counts, links, office_totals=None):
                        f'style="pointer-events:all" data-name="{_attr(off)}" data-n="{totals.get(off, 0)}" '
                        f'onmouseenter="dotTip(evt,this)" onmousemove="mapTipMove(evt)" onmouseleave="mapTipHide()"/>')
 
-    # duty-station bubbles + labels (+ transparent hover/click hit-areas)
-    bubbles, labels, hits, tips = [], [], [], []
+    # duty-station bubbles (hover + click live on the visible bubble itself) + labels
+    bubbles, labels, tips = [], [], []
     for s in sorted(stations, key=lambda s: -s['count']):
         x, y = project(s['lon'], s['lat'])
         r = 6 + math.sqrt(s['count']) * 2.15
         col = s['color']
         key = s.get('key', '')
-        bubbles.append(f'<g class="wmbub" data-hub="{key}">'
+        handlers = (f' style="cursor:pointer" onmouseenter="mapTip(evt,\'{key}\')" onmousemove="mapTipMove(evt)" '
+                    f'onmouseleave="mapTipHide()" onclick="selectHub(evt,\'{key}\')"') if key else ''
+        bubbles.append(f'<g class="wmbub" data-hub="{key}"{handlers}>'
                        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r+7:.1f}" fill="{col}" opacity="0.13"/>'
                        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{col}" opacity="0.88" stroke="#fff" stroke-width="2"/>'
                        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.4" fill="#fff"/></g>')
@@ -207,21 +209,17 @@ def build_world_map(stations, office_counts, links, office_totals=None):
             lx, ly, ta = x - r - 8, y + 4, 'end'
         else:
             lx, ly, ta = x, y - r - 8, 'middle'
-        labels.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{ta}" class="wmlabel">'
-                      f'{_esc(s["name"])} <tspan class="wmcount">{s["count"]}</tspan></text>')
-        key = s.get('key', '')
-        if key:
-            hits.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{max(r+8, 13):.1f}" fill="#000" opacity="0" '
-                        f'style="pointer-events:all;cursor:pointer" onmouseenter="mapTip(evt,\'{key}\')" '
-                        f'onmousemove="mapTipMove(evt)" onmouseleave="mapTipHide()" '
-                        f'onclick="selectHub(evt,\'{key}\')"/>')
-            if s.get('tip'):
-                tips.append(f'<div id="tip-{key}" class="tiptpl" style="display:none">{s["tip"]}</div>')
+        labels.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{ta}" class="wmlabel" '
+                      f'style="pointer-events:none">{_esc(s["name"])} <tspan class="wmcount">{s["count"]}</tspan></text>')
+        if key and s.get('tip'):
+            tips.append(f'<div id="tip-{key}" class="tiptpl" style="display:none">{s["tip"]}</div>')
 
+    # Layer order (bottom -> top): map, arcs, visible dots, dot hover-targets,
+    # interactive bubbles (topmost so a click on the disc always selects the
+    # station), then labels (non-interactive, drawn last so text stays legible).
     svg = (f'<div class="wmwrap"><svg viewBox="0 0 {WIDTH:.0f} {HEIGHT:.0f}" class="wmsvg" '
            f'preserveAspectRatio="xMidYMid meet" onclick="clearHub()">'
-           + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(bubbles) + ''.join(labels)
-           + ''.join(hits) + ''.join(dothits)
+           + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(dothits) + ''.join(bubbles) + ''.join(labels)
            + '</svg></div>')
     return svg + ''.join(tips) + '<div id="maptip" class="maptip"></div>'
 
