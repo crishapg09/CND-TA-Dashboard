@@ -25,6 +25,14 @@ TODAY = json.load(open(f'{ROOT}/today.json'))
 by_name = {s['name']: s for s in staff}
 EPOCH = datetime.datetime(1899, 12, 30)
 
+# "as of" date and the 30-day window, derived from the data
+TODAY_STR = (EPOCH + datetime.timedelta(days=TODAY)).strftime('%-d %b %Y')      # e.g. 29 Jul 2026
+WIN_STR = (EPOCH + datetime.timedelta(days=TODAY - 30)).strftime('%-d %b %Y')   # e.g. 29 Jun 2026
+WIN_SHORT = (EPOCH + datetime.timedelta(days=TODAY - 30)).strftime('%-d %b')    # e.g. 29 Jun
+RECV_BODY = f'new TA requests opened between {WIN_SHORT} and {TODAY_STR}.'
+OVERDUE_FOOTER = (f'Days over = today ({TODAY_STR}) − the request’s Expected Completion Date, '
+                  'counting only active requests (below 100%) whose target date has already passed.')
+
 STATUS_ORDER = ['0%', '25%', '50%', '75%', '100%', 'Unassigned']
 SC = {'0%': '#D6E0E8', '25%': '#9CC6E0', '50%': '#5BA3D0', '75%': '#2C7DB5',
       '100%': '#0B5A8A', 'Discontinued': '#9AA7B2', 'Unassigned': '#E0A21E'}
@@ -162,7 +170,7 @@ def req_table(title, rows, metric_label, days_color, footer='', cols=None):
 # ======================================================================
 perf_kpis = kpi_strip([
     ('Total requests', str(len(PERF)), 'nutrition TA requests (country offices)', '#0B6FA4', '#0F2238'),
-    ('Received last 30 days', str(len(recent)), 'new since 24 Jun 2026', '#1CABE2', '#0F2238'),
+    ('Received last 30 days', str(len(recent)), f'new since {WIN_STR}', '#1CABE2', '#0F2238'),
     ('Active &amp; on track', str(onTrack), 'in progress, not overdue', '#3E9CD6', '#3E9CD6'),
     ('Completed vs. target', f'{pct(len(doneDue), len(due))}%', f'of {len(due)} due by today, {len(doneDue)} at 100%', '#2E7D5B', '#2E7D5B'),
     ('Active on target', f'{pct(onTrack, len(active))}%', f'{len(overdue)} overdue — update date or close', '#3E9CD6', '#0F2238'),
@@ -712,7 +720,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     </div>
     <div class="meta">
       <div><b>{len(PERF)}</b> CO requests &middot; <b>{len(staff)}</b> team members</div>
-      <div>Created Jan&ndash;Jul 2026 &middot; as of 24 Jul 2026</div>
+      <div>Created Jan&ndash;Jul 2026 &middot; as of {TODAY_STR}</div>
     </div>
   </header>
 
@@ -744,7 +752,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
       </div>
       <div class="grid13 mt16">
-        {hero('#EAF2F8', '#CFE0EE', '#0B6FA4', len(recent), '#0B6FA4', 'Received in last 30 days', 'new TA requests opened between 24 Jun and 24 Jul 2026.', '#3E6178')}
+        {hero('#EAF2F8', '#CFE0EE', '#0B6FA4', len(recent), '#0B6FA4', 'Received in last 30 days', RECV_BODY, '#3E6178')}
         <div class="card"><div class="cardtitle">New by thematic area</div>{barlist(recent_area, '#0B6FA4', label_w=250)}</div>
       </div>
       <div class="grid13 mt16">
@@ -779,7 +787,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
       </div>
       <div class="banner" style="background:rgba(224,162,30,0.12);border:1px solid rgba(224,162,30,0.35);color:#7A5B10"><strong style="color:#5B7186">What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
-      {req_table('Most overdue active requests', overdue[:14], 'Days over', '#C0453F', footer='Days over = today (24 Jul 2026) − the request’s Expected Completion Date, counting only active requests (below 100%) whose target date has already passed.')}
+      {req_table('Most overdue active requests', overdue[:14], 'Days over', '#C0453F', footer=OVERDUE_FOOTER)}
     </div>
 
     <!-- flows -->
