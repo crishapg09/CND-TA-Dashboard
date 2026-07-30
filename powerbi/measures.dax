@@ -1,0 +1,188 @@
+/* =====================================================================
+   Nutrition TA Management — Power BI measures (phase 1: native visuals)
+   ---------------------------------------------------------------------
+   MODEL
+     Cases  (fact)  one row per TA request  (ServiceNow "Case Report" export)
+     Staff  (dim)   one row per person: Name, Title, Thematic Area, Duty Station
+     Calendar (dim) a standard date table (see README) — optional but recommended
+
+   RELATIONSHIPS
+     Cases[Assigned to]  ->  Staff[Name]            (many-to-one, single)
+     Calendar[Date]      ->  Cases[Opened]          (active)
+     Calendar[Date]      ->  Cases[Closed]          (INACTIVE — used via USERELATIONSHIP)
+
+   CALCULATED COLUMNS ON Cases (add these first)
+     Thematic Area = RELATED ( Staff[Thematic Area] )
+     Duty Station  = RELATED ( Staff[Duty Station] )
+     Include =
+        NOT ( Cases[Resolution code] IN
+              { "Voided/Canceled", "Duplicate Issue",
+                "Discontinued — did not need to proceed" } )
+
+   Every measure below already restricts to Include = TRUE and drops the
+   "Discontinued" status, so you do NOT need a page filter — but adding a
+   page filter Include = True is harmless and speeds things up.
+   ===================================================================== */
+
+
+/* ---- 0. The "as of" date (matches the web dashboard: latest activity) ---- */
+As Of Date :=
+VAR mc = CALCULATE ( MAX ( Cases[Created] ), ALL ( Cases ) )
+VAR mo = CALCULATE ( MAX ( Cases[Opened] ),  ALL ( Cases ) )
+VAR mu = CALCULATE ( MAX ( Cases[Updated] ), ALL ( Cases ) )
+RETURN MAXX ( { mc, mo, mu }, [Value] )
+
+
+/* ---- 1. Core counts (KPI cards) ---- */
+
+-- reporting universe: kept requests, excluding the Discontinued status
+Total requests :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] <> "Discontinued" )
+)
+
+Completed :=
+CALCULATE ( [Total requests], KEEPFILTERS ( Cases[Implementation Status] = "100%" ) )
+
+Active (in progress) :=
+CALCULATE (
+    [Total requests],
+    KEEPFILTERS ( NOT ( Cases[Implementation Status] IN { "100%", "Unassigned" } ) )
+)
+
+Unassigned :=
+CALCULATE ( [Total requests], KEEPFILTERS ( Cases[Implementation Status] = "Unassigned" ) )
+
+Overdue :=
+VAR d = [As Of Date]
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] <> "Discontinued"
+            && NOT ( Cases[Implementation Status] IN { "100%", "Unassigned" } )
+            && NOT ( ISBLANK ( Cases[Expected Completion Date] ) )
+            && Cases[Expected Completion Date] < d
+    )
+)
+
+On track := [Active (in progress)] - [Overdue]
+
+Received last 30 days :=
+VAR d = [As Of Date]
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] <> "Discontinued"
+            && NOT ( ISBLANK ( COALESCE ( Cases[Created], Cases[Opened] ) ) )
+            && COALESCE ( Cases[Created], Cases[Opened] ) >= d - 30
+            && COALESCE ( Cases[Created], Cases[Opened] ) <= d
+    )
+)
+
+
+/* ---- 2. Completion against target (KPI card) ---- */
+
+Due by today :=
+VAR d = [As Of Date]
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] <> "Discontinued"
+            && NOT ( ISBLANK ( Cases[Expected Completion Date] ) )
+            && Cases[Expected Completion Date] <= d
+    )
+)
+
+Completed by target :=
+CALCULATE ( [Due by today], KEEPFILTERS ( Cases[Implementation Status] = "100%" ) )
+
+Completed vs target % :=
+DIVIDE ( [Completed by target], [Due by today] )
+
+Active on target % :=
+DIVIDE ( [On track], [Active (in progress)] )
+
+
+/* ---- 3. Opened vs completed by month (clustered column) ----
+   Put Calendar[Month] on the X axis; plot [Opened] and [Completed (by close)].
+   Opened uses the ACTIVE Calendar->Cases[Opened] relationship.               */
+
+Opened :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] <> "Discontinued" )
+)
+
+Completed (by close month) :=
+CALCULATE (
+    [Completed],
+    USERELATIONSHIP ( Calendar[Date], Cases[Closed] )
+)
+
+
+/* ---- 4. Workload (bar by Staff[Name]; cards) ---- */
+
+Distinct TA leads :=
+CALCULATE (
+    DISTINCTCOUNT ( Cases[Assigned to] ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] <> "Discontinued" ),
+    KEEPFILTERS ( NOT ( ISBLANK ( Cases[Assigned to] ) ) )
+)
+
+Avg requests per lead :=
+DIVIDE ( [Total requests], [Distinct TA leads] )
+
+
+/* ---- 5. Where support flows — headline numbers (cards) ----
+   ( the interactive arc map is phase 2 — see README )                        */
+
+Countries supported :=
+CALCULATE (
+    DISTINCTCOUNT ( Cases[Office/Division] ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] <> "Discontinued" ),
+    KEEPFILTERS ( NOT ( ISBLANK ( Cases[Office/Division] ) ) )
+)
+
+Origins resolved :=
+CALCULATE (
+    [Total requests],
+    KEEPFILTERS ( NOT ( ISBLANK ( Cases[Duty Station] ) ) )
+)
+
+
+/* ---- 6. Overdue severity buckets (optional — needs a disconnected table) ----
+   Create table  Severity = DATATABLE("Band",STRING,"Lo",INTEGER,"Hi",INTEGER,
+       { {"1–30 days",1,30}, {"31–60 days",31,60}, {">60 days",61,100000} } )
+   Put Severity[Band] on a bar axis and use this measure as the value.         */
+
+Overdue in band :=
+VAR d   = [As Of Date]
+VAR lo  = MAX ( Severity[Lo] )
+VAR hi  = MAX ( Severity[Hi] )
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] <> "Discontinued"
+            && NOT ( Cases[Implementation Status] IN { "100%", "Unassigned" } )
+            && NOT ( ISBLANK ( Cases[Expected Completion Date] ) )
+            && ( d - Cases[Expected Completion Date] ) >= lo
+            && ( d - Cases[Expected Completion Date] ) <= hi
+    )
+)
