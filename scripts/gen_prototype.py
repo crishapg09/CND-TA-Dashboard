@@ -236,14 +236,50 @@ def detailed_table(sets):
 # ======================================================================
 # PERFORMANCE
 # ======================================================================
-perf_kpis = kpi_strip([
-    ('Total requests', str(len(PERF)), 'nutrition TA requests (country offices)', '#0B6FA4', '#0F2238'),
-    ('Received last 30 days', str(len(recent)), f'new since {WIN_STR}', '#1CABE2', '#0F2238'),
-    ('Active &amp; on track', str(onTrack), 'in progress, not overdue', '#3E9CD6', '#3E9CD6'),
-    ('Completed vs. target', f'{pct(len(doneDue), len(due))}%', f'of {len(due)} due by today, {len(doneDue)} at 100%', '#2E7D5B', '#2E7D5B'),
-    ('Active on target', f'{pct(onTrack, len(active))}%', f'{len(overdue)} overdue — update date or close', '#3E9CD6', '#0F2238'),
-    ('Overdue', str(len(overdue)), 'past their expected completion date', '#C0453F', '#C0453F'),
-])
+# big-ticket vs routine split (constant reference, whole portfolio)
+n_big = sum(1 for c in PERF if c.get('type') == 'Big Ticket')
+n_routine = len(PERF) - n_big
+
+def perf_kpi_strip(rows, noun, is_all):
+    """Top-row KPI cards for a subset (all / big ticket / routine). Headlines are
+    totals; the matching share of the (filtered) portfolio sits in the subtext."""
+    n = len(rows)
+    rec = sum(1 for c in rows if (c['cr'] or c['op']) and (c['cr'] or c['op']) >= TODAY - 30)
+    comp = sum(1 for c in rows if c['status'] == '100%')
+    act = [c for c in rows if c['status'] not in ('100%', 'Discontinued', 'Unassigned')]
+    ovd = sum(1 for c in act if c['xc'] is not None and c['xc'] < TODAY)
+    total_sub = ('nutrition TA requests &middot; country offices' if is_all
+                 else f'{pct(n, len(PERF))}% of all {len(PERF)} requests &middot; {noun}')
+    cards = [
+        ('Total requests', str(n), total_sub, '#0B6FA4', '#0F2238'),
+        ('Received last 30 days', str(rec), f'{pct(rec, n)}% of {noun} &middot; new since {WIN_STR}', '#1CABE2', '#0F2238'),
+        ('Completed', str(comp), f'{pct(comp, n)}% of {noun} reached 100%', '#2E7D5B', '#2E7D5B'),
+        ('Overdue', str(ovd), f'{pct(ovd, n)}% of {noun} &middot; past target date', '#C0453F', '#C0453F'),
+    ]
+    tiles = ''.join(
+        f'<div class="kpi" style="border-top:3px solid {a}"><div class="kpilabel">{lab}</div>'
+        f'<div class="kpival" style="color:{col}">{v}</div><div class="kpisub">{s}</div></div>'
+        for lab, v, s, a, col in cards)
+    tiles += (
+        '<div class="kpi" style="border-top:3px solid #B0602C"><div class="kpilabel">Big ticket vs. routine</div>'
+        '<div class="kpisplit">'
+        f'<div><div class="kpival2" style="color:#B0602C">{n_big}</div><div class="kpisub">{pct(n_big, len(PERF))}% big ticket</div></div>'
+        '<div class="kpisplitdiv"></div>'
+        f'<div><div class="kpival2" style="color:#0B5A8A">{n_routine}</div><div class="kpisub">{pct(n_routine, len(PERF))}% routine</div></div>'
+        '</div></div>')
+    return f'<div class="kpistrip">{tiles}</div>'
+
+_big_rows = [c for c in PERF if c.get('type') == 'Big Ticket']
+_rtn_rows = [c for c in PERF if c.get('type') != 'Big Ticket']
+perf_kpis = (
+    '<div class="kpifilter"><span class="kpifl">Filter</span>'
+    f'<button class="kpibtn on" data-kf="all" onclick="showKpiFilter(\'all\')">All <b>{len(PERF)}</b></button>'
+    f'<button class="kpibtn" data-kf="big" onclick="showKpiFilter(\'big\')">Big ticket <b>{n_big}</b></button>'
+    f'<button class="kpibtn" data-kf="routine" onclick="showKpiFilter(\'routine\')">Routine <b>{n_routine}</b></button></div>'
+    '<div class="kpiwrap" data-kpi="all" style="display:block">' + perf_kpi_strip(PERF, 'all requests', True) + '</div>'
+    '<div class="kpiwrap" data-kpi="big" style="display:none">' + perf_kpi_strip(_big_rows, 'big-ticket requests', False) + '</div>'
+    '<div class="kpiwrap" data-kpi="routine" style="display:none">' + perf_kpi_strip(_rtn_rows, 'routine requests', False) + '</div>'
+)
 
 # opened vs completed by month (Apr-Jul = idx 3..6)
 io = []
@@ -695,6 +731,15 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .kpilabel {{ font-size:12px; color:#5B7186; font-weight:600; }}
   .kpival {{ font-size:32px; font-weight:700; letter-spacing:-.02em; line-height:1.1; margin:6px 0 4px; font-variant-numeric:tabular-nums; }}
   .kpisub {{ font-size:11.5px; color:#9AA7B2; }}
+  .kpifilter {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px; }}
+  .kpifl {{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#8A98A6; font-weight:700; margin-right:2px; }}
+  .kpibtn {{ cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:700; padding:7px 14px; border-radius:8px; border:1px solid #D5DEE6; background:#fff; color:#5B7186; display:inline-flex; align-items:center; gap:7px; }}
+  .kpibtn b {{ color:#0F2238; font-variant-numeric:tabular-nums; }}
+  .kpibtn.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
+  .kpibtn.on b {{ color:#fff; }}
+  .kpisplit {{ display:flex; align-items:stretch; gap:16px; margin:6px 0 0; }}
+  .kpival2 {{ font-size:27px; font-weight:700; letter-spacing:-.02em; line-height:1.15; font-variant-numeric:tabular-nums; }}
+  .kpisplitdiv {{ width:1px; background:#EDF1F4; }}
 
   .card {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:20px 22px; }}
   .cardtitle {{ font-size:13.5px; font-weight:700; margin-bottom:14px; }}
@@ -1108,6 +1153,12 @@ function showTop(id){{
   var ts=document.querySelectorAll('.tab');
   for(var j=0;j<ts.length;j++){{ ts[j].className = 'tab' + (ts[j].getAttribute('data-top')===id ? ' on' : ''); }}
   window.scrollTo(0,0);
+}}
+function showKpiFilter(m){{
+  var ws=document.querySelectorAll('.kpiwrap');
+  for(var i=0;i<ws.length;i++){{ ws[i].style.display = ws[i].getAttribute('data-kpi')===m ? 'block' : 'none'; }}
+  var bs=document.querySelectorAll('.kpibtn');
+  for(var j=0;j<bs.length;j++){{ if(bs[j].getAttribute('data-kf')===m){{ bs[j].classList.add('on'); }} else {{ bs[j].classList.remove('on'); }} }}
 }}
 function showSub(g,id){{
   var ps=document.querySelectorAll('.subpanel-'+g);
