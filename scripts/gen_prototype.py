@@ -942,20 +942,18 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
         <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
       </div>
-      <div class="grid2 mt16">
-        <div class="card">
-          <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
-            <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
-          <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
-          <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
-        </div>
-        <div class="card">
-          <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
-            <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
-          {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
-        </div>
+      <div class="card mt16">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
+          <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
+        <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
+        <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
       </div>
-      <div class="banner" style="background:rgba(224,162,30,0.12);border:1px solid rgba(224,162,30,0.35);color:#7A5B10"><strong style="color:#5B7186">What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
+      <div class="card mt16">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
+          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
+        {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
+        <div class="cardnote"><strong>What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
+      </div>
       {detailed_table([('new', 'New requests', newest), ('overdue', 'Overdue requests', overdue)])}
     </div>
 
