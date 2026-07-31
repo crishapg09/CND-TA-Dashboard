@@ -92,7 +92,10 @@ def seg_bar(segs, width_pct, h=12, track='#EEF2F6'):
             f'<div class="bar" style="height:100%;width:{width_pct:.1f}%;border-radius:{h/2}px">{inner}</div></div>')
 
 def barlist(items, color, track='#E9F0F6', label_w=64, empty='None in the current filter.',
-            right=False, pct=False):
+            right=False, pct=False, denom=None):
+    """pct=True adds a % column. By default it's each row's share of the chart
+    total; pass `denom` (a {label: total} map) to show each row as a share of
+    that category's own portfolio instead."""
     if not items: return f'<div class="muted">{empty}</div>'
     mx = max(n for _, n in items) or 1
     tot = sum(n for _, n in items) or 1
@@ -100,7 +103,8 @@ def barlist(items, color, track='#E9F0F6', label_w=64, empty='None in the curren
     cols = f'{label_w}px 1fr 34px' + (' 44px' if pct else '')
     rows = ''
     for label, n in items:
-        pcttd = f'<div class="blpct">{round(100 * n / tot)}%</div>' if pct else ''
+        d = (denom.get(label, n) if denom else tot) or 1
+        pcttd = f'<div class="blpct">{round(100 * n / d)}%</div>' if pct else ''
         rows += (f'<div class="blrow" style="grid-template-columns:{cols}">'
                  f'<div class="{lblcls}">{esc(label)}</div>'
                  f'<div class="track" style="height:9px;background:{track};border-radius:5px"><div style="height:100%;width:{100*n/mx:.1f}%;background:{color};border-radius:5px"></div></div>'
@@ -261,6 +265,10 @@ io_opened = sum(o for _, o, _ in io); io_done = sum(d for _, _, d in io)
 def by_offer(rows):
     return Counter(c['offer'] or '(no offer)' for c in rows).most_common()
 
+# each category's whole portfolio (all statuses), used as the % denominator
+area_total = Counter(c['area'] for c in PERF)
+offer_total = Counter(c['offer'] or '(no offer)' for c in PERF)
+
 recent_area = [(k, len(v)) for k, v in groupby_area(recent)]
 ontrack_area = [(k, len(v)) for k, v in groupby_area(ontrackSet)]
 overdue_area = [(k, len(v)) for k, v in groupby_area(overdue)]
@@ -303,12 +311,13 @@ for key, label, sub, count, col, area, offer, showpct in FLOW:
     trk = _flow_track.get(col, "#E9F0F6")
     flow_bars += (f'<div class="flowbarbox" data-flow="{key}" style="display:{disp}">'
                   f'<div class="cardtitle">{label} — by thematic area</div>'
-                  f'{barlist(area, col, trk, label_w=300, right=True, pct=True)}'
+                  f'{barlist(area, col, trk, label_w=300, right=True, pct=True, denom=area_total)}'
                   f'<div class="divider"></div>'
                   f'<div class="cardtitle">{label} — by programme offer</div>'
-                  f'{barlist(offer, col, trk, label_w=300, right=True, pct=True)}'
-                  f'<div class="barnote">% is each category’s share of the {count} {label.lower()} '
-                  f'{"request" if count == 1 else "requests"}.</div></div>')
+                  f'{barlist(offer, col, trk, label_w=300, right=True, pct=True, denom=offer_total)}'
+                  f'<div class="barnote">% is the share of each thematic area’s (or programme offer’s) '
+                  f'own portfolio that is {label.lower()} — e.g. what portion of all Food Systems for '
+                  f'Children requests are {label.lower()}, not its share of every {label.lower()} request.</div></div>')
 
 _onpct = round(100 * onTrack / flow_total)
 _ovpct = round(100 * len(overdue) / flow_total)
