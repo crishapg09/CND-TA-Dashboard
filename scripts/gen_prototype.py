@@ -316,8 +316,7 @@ for key, label, sub, count, col, area, offer, showpct in FLOW:
                   f'<div class="cardtitle">{label} — by programme offer</div>'
                   f'{barlist(offer, col, trk, label_w=300, right=True, pct=True, denom=offer_total)}'
                   f'<div class="barnote">% is the share of each thematic area’s (or programme offer’s) '
-                  f'own portfolio that is {label.lower()} — e.g. what portion of all Food Systems for '
-                  f'Children requests are {label.lower()}, not its share of every {label.lower()} request.</div></div>')
+                  f'own portfolio that is {label.lower()}.</div></div>')
 
 _onpct = round(100 * onTrack / flow_total)
 _ovpct = round(100 * len(overdue) / flow_total)
