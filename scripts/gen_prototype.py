@@ -11,7 +11,7 @@ each request's TA-lead duty station to the supported country office.
 Everything is rendered as visible stacked sections (no hidden tabs) so the
 whole dashboard can be reviewed and edited at once. Data-driven from the
 committed cases.json + staff.json."""
-import json, os, re, html, datetime
+import json, os, re, math, html, datetime
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -258,6 +258,58 @@ ontrack_area = [(k, len(v)) for k, v in groupby_area(ontrackSet)]
 overdue_area = [(k, len(v)) for k, v in groupby_area(overdue)]
 completed_perf = [c for c in PERF if c['status'] == '100%']
 completed_area = [(k, len(v)) for k, v in groupby_area(completed_perf)]
+
+# ---- "flow of work" — bubbles sized by share of all requests, click -> by-area bar ----
+flow_total = len(PERF)
+FLOW = [   # key, label, sub, count, colour, by-area data, show-% -of-total
+    ('received',  'Received',  'new · last 30 days',   len(recent),         '#0B6FA4', recent_area,   False),
+    ('ontrack',   'On track',  'in progress, on time', onTrack,             '#3E9CD6', ontrack_area,  True),
+    ('overdue',   'Overdue',   'past target date',     len(overdue),        '#C0453F', overdue_area,  True),
+    ('completed', 'Completed', 'reached 100%',         len(completed_perf), '#2E7D5B', completed_area, True),
+]
+FLOW_DEFAULT = 'ontrack'
+_flow_track = {'#0B6FA4': '#E9F0F6', '#3E9CD6': '#E4EFF6', '#C0453F': '#F2EAE9', '#2E7D5B': '#E6F1EB'}
+_cmax = max(d[3] for d in FLOW) or 1
+_k = 70.0 / math.sqrt(_cmax)                 # radius so the biggest bubble ~70px
+_radii = {d[0]: max(15, round(math.sqrt(d[3]) * _k)) for d in FLOW}
+_maxR = max(_radii.values())
+
+flow_band = ''
+for i, (key, label, sub, count, col, area, showpct) in enumerate(FLOW):
+    r = _radii[key]; dia = 2 * r
+    fs = max(13, min(34, round(r * 0.85)))
+    on = ' on' if key == FLOW_DEFAULT else ''
+    pcttxt = f'{round(100 * count / flow_total)}% of all TA' if showpct else 'inflow · 30d'
+    flow_band += (f'<div class="flownode{on}" data-flow="{key}" onclick="showFlow(\'{key}\')">'
+                  f'<div class="flowcircwrap" style="height:{2 * _maxR}px">'
+                  f'<div class="flowcirc" style="width:{dia}px;height:{dia}px;border-color:{col};background:{col}1F">'
+                  f'<span class="flownum" style="color:{col};font-size:{fs}px">{count}</span></div></div>'
+                  f'<div class="flowlabel">{label}</div><div class="flowsub">{sub}</div>'
+                  f'<div class="flowpct" style="color:{col}">{pcttxt}</div></div>')
+    if i < len(FLOW) - 1:
+        flow_band += f'<div class="flowarrow">&rarr;</div>'
+
+flow_bars = ''
+for key, label, sub, count, col, area, showpct in FLOW:
+    disp = 'block' if key == FLOW_DEFAULT else 'none'
+    flow_bars += (f'<div class="flowbarbox" data-flow="{key}" style="display:{disp}">'
+                  f'<div class="cardtitle">{label} — by thematic area</div>'
+                  f'{barlist(area, col, _flow_track.get(col, "#E9F0F6"), label_w=250)}</div>')
+
+_onpct = round(100 * onTrack / flow_total)
+_ovpct = round(100 * len(overdue) / flow_total)
+_dopct = round(100 * len(completed_perf) / flow_total)
+flow_card = (
+    '<div class="card">'
+    f'<div class="cardtitle" style="margin-bottom:2px">Where the {flow_total} nutrition TA requests stand today</div>'
+    f'<div style="font-size:12.5px;color:#5B7186;margin-bottom:8px">Each circle is sized by its share of the portfolio — '
+    f'<b style="color:#3E9CD6">{_onpct}% on track</b>, <b style="color:#2E7D5B">{_dopct}% completed</b>, and just '
+    f'<b style="color:#C0453F">{_ovpct}% overdue</b>. Click a circle to break that group down by thematic area.</div>'
+    f'<div class="flowband">{flow_band}</div>'
+    '<div class="divider"></div>'
+    f'<div class="flowbars">{flow_bars}</div>'
+    '</div>'
+)
 
 # newest + overdue tables
 for c in cases: c['_m'] = ''
@@ -784,6 +836,21 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .loadsub {{ font-size:11px; }}
   .divider {{ height:1px; background:#EDF1F4; margin:22px 0; }}
 
+  /* flow-of-work bubbles */
+  .flowband {{ display:flex; align-items:flex-end; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
+  .flownode {{ cursor:pointer; text-align:center; padding:8px 12px 10px; border-radius:12px; border:1px solid transparent; transition:background .15s, border-color .15s; }}
+  .flownode:hover {{ background:#F6F8FA; }}
+  .flownode.on {{ background:#EEF5FB; border-color:#D3E4F1; }}
+  .flowcircwrap {{ display:flex; align-items:flex-end; justify-content:center; }}
+  .flowcirc {{ border-radius:50%; border:3px solid; display:flex; align-items:center; justify-content:center; transition:transform .15s; }}
+  .flownode:hover .flowcirc, .flownode.on .flowcirc {{ transform:scale(1.05); }}
+  .flownum {{ font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }}
+  .flowlabel {{ font-size:13.5px; font-weight:700; color:#0F2238; margin-top:12px; }}
+  .flowsub {{ font-size:11px; color:#8A98A6; margin-top:1px; }}
+  .flowpct {{ font-size:11.5px; font-weight:700; margin-top:4px; }}
+  .flowarrow {{ color:#C4CDD6; font-size:22px; align-self:flex-end; padding-bottom:36px; }}
+  .flowbars {{ margin-top:2px; }}
+
   .sevlegend {{ display:flex; gap:16px; flex-wrap:wrap; }}
   .sevbar {{ display:flex; height:30px; border-radius:6px; overflow:hidden; border:1px solid #E3E9EF; }}
   .sevtags {{ display:flex; gap:24px; margin-top:10px; font-size:12.5px; flex-wrap:wrap; }}
@@ -834,29 +901,14 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <!-- demand -->
     <div class="subpanel-perf" id="demand" style="display:block">
       {panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
-      <div class="card">
+      {flow_card}
+      <div class="card mt16">
         <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
           <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
           <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Opened</div><div class="lg"><span class="lgdot" style="background:#2E7D5B"></span>Completed</div></div>
         </div>
         <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
         <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
-      </div>
-      <div class="grid13 mt16">
-        {hero('#EAF2F8', '#CFE0EE', '#0B6FA4', len(recent), '#0B6FA4', 'Received in last 30 days', RECV_BODY, '#3E6178')}
-        <div class="card"><div class="cardtitle">New by thematic area</div>{barlist(recent_area, '#0B6FA4', label_w=250)}</div>
-      </div>
-      <div class="grid13 mt16">
-        {hero('#EAF2F8', '#CFE0EE', '#3E9CD6', onTrack, '#3E9CD6', 'Active &amp; on track', 'requests in progress whose expected completion date has not yet passed.', '#3E6178')}
-        <div class="card"><div class="cardtitle">On track by thematic area</div>{barlist(ontrack_area, '#3E9CD6', '#E4EFF6', label_w=250)}</div>
-      </div>
-      <div class="grid13 mt16">
-        {hero('#EAF4EE', '#CFE6D8', '#2E7D5B', len(completed_perf), '#2E7D5B', 'Completed', 'TA requests that have reached 100% implementation.', '#4A6B58')}
-        <div class="card"><div class="cardtitle">Completed by thematic area</div>{barlist(completed_area, '#2E7D5B', '#E6F1EB', label_w=250)}</div>
-      </div>
-      <div class="grid13 mt16">
-        {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date but not yet at 100%.', '#8A5450')}
-        <div class="card"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=250)}</div>
       </div>
       <div class="grid2 mt16">
         <div class="card">
@@ -1031,6 +1083,12 @@ function showTbl(id){{
   for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-tbl')===id ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.dtoggle');
   for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-tbl')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
+}}
+function showFlow(key){{
+  var bs=document.querySelectorAll('.flowbarbox');
+  for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-flow')===key ? 'block' : 'none'; }}
+  var ns=document.querySelectorAll('.flownode');
+  for(var j=0;j<ns.length;j++){{ if(ns[j].getAttribute('data-flow')===key){{ ns[j].classList.add('on'); }} else {{ ns[j].classList.remove('on'); }} }}
 }}
 function dotTip(e,el){{
   var t=document.getElementById('maptip'); if(!t) return;
