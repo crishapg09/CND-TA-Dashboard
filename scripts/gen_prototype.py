@@ -28,10 +28,6 @@ EPOCH = datetime.datetime(1899, 12, 30)
 # "as of" date and the 30-day window, derived from the data
 TODAY_STR = (EPOCH + datetime.timedelta(days=TODAY)).strftime('%-d %b %Y')      # e.g. 29 Jul 2026
 WIN_STR = (EPOCH + datetime.timedelta(days=TODAY - 30)).strftime('%-d %b %Y')   # e.g. 29 Jun 2026
-WIN_SHORT = (EPOCH + datetime.timedelta(days=TODAY - 30)).strftime('%-d %b')    # e.g. 29 Jun
-RECV_BODY = f'new TA requests opened between {WIN_SHORT} and {TODAY_STR}.'
-OVERDUE_FOOTER = (f'Days over = today ({TODAY_STR}) − the request’s Expected Completion Date, '
-                  'counting only active requests (below 100%) whose target date has already passed.')
 
 STATUS_ORDER = ['0%', '25%', '50%', '75%', '100%', 'Unassigned']
 SC = {'0%': '#D6E0E8', '25%': '#9CC6E0', '50%': '#5BA3D0', '75%': '#2C7DB5',
@@ -62,14 +58,10 @@ PERF = [c for c in CO if c['status'] != 'Discontinued']            # performance
 active = [c for c in PERF if c['status'] not in ('100%', 'Discontinued', 'Unassigned')]
 overdue = sorted([c for c in active if c['xc'] is not None and c['xc'] < TODAY],
                  key=lambda c: -(TODAY - c['xc']))
-ontrackSet = [c for c in active if not (c['xc'] is not None and c['xc'] < TODAY)]
 onTrack = len(active) - len(overdue)
 recent = [c for c in PERF if (c['cr'] or c['op']) and (c['cr'] or c['op']) >= TODAY - 30]
-due = [c for c in PERF if c['xc'] is not None and c['xc'] <= TODAY]
-doneDue = [c for c in due if c['status'] == '100%']
-closed30 = [c for c in PERF if c['cl'] is not None and TODAY - 30 <= c['cl'] <= TODAY]
-stalled = [c for c in active if c['status'] == '0%' and c['op'] is not None and TODAY - c['op'] > 30]
-disc = [c for c in CO if c['status'] == 'Discontinued']
+# (active / overdue / onTrack / recent feed the build-time sanity print below;
+#  every subtab recomputes its own numbers per filter inside the render_* funcs)
 
 # ======================================================================
 # small rendering helpers
@@ -281,116 +273,17 @@ perf_kpis = (
     '<div class="kpiwrap" data-kpi="routine" style="display:none">' + perf_kpi_strip(_rtn_rows, 'routine requests', False) + '</div>'
 )
 
-# opened vs completed by month (Apr-Jul = idx 3..6)
-io = []
-for i in range(3, 7):
-    opened = sum(1 for c in PERF if month(c['op']) == i)
-    comp = sum(1 for c in PERF if c['status'] == '100%' and month(c['cl'] if c['cl'] is not None else c['rs']) == i)
-    io.append((['Jan','Feb','Mar','Apr','May','Jun','Jul'][i], opened, comp))
-io_max = max((max(o, d) for _, o, d in io), default=1) or 1
-io_html = ''
-for label, o, d in io:
-    io_html += (f'<div class="mcol">'
-                f'<div class="mpair">'
-                f'<div class="mbarwrap"><div class="mval" style="color:#0B6FA4">{o}</div><div class="mbar" style="height:{round(140*o/io_max)}px;background:#0B6FA4"></div></div>'
-                f'<div class="mbarwrap"><div class="mval" style="color:#2E7D5B">{d}</div><div class="mbar" style="height:{round(140*d/io_max)}px;background:#2E7D5B"></div></div>'
-                f'</div><div class="mlabel">{label}</div></div>')
-io_opened = sum(o for _, o, _ in io); io_done = sum(d for _, _, d in io)
-io_net = io_opened - io_done
-io_clear = round(100 * io_done / io_opened) if io_opened else 0
-active_total = len(ontrackSet) + len(overdue)  # the standing "active pile"
-overdue_share = round(100 * len(overdue) / active_total) if active_total else 0
-
 # received last 30 / on track / overdue / completed — by thematic area & by programme offer
 def by_offer(rows):
     return Counter(c['offer'] or '(no offer)' for c in rows).most_common()
 
-# each category's whole portfolio (all statuses), used as the % denominator
-area_total = Counter(c['area'] for c in PERF)
-offer_total = Counter(c['offer'] or '(no offer)' for c in PERF)
-
-recent_area = [(k, len(v)) for k, v in groupby_area(recent)]
-ontrack_area = [(k, len(v)) for k, v in groupby_area(ontrackSet)]
-overdue_area = [(k, len(v)) for k, v in groupby_area(overdue)]
-completed_perf = [c for c in PERF if c['status'] == '100%']
-completed_area = [(k, len(v)) for k, v in groupby_area(completed_perf)]
-
-# ---- "flow of work" — bubbles sized by share of all requests, click -> by-area/offer bars ----
-flow_total = len(PERF)
-FLOW = [   # key, label, sub, count, colour, by-area data, by-offer data, show-% -of-total
-    ('received',  'Received',  'new · last 30 days',   len(recent),         '#0B6FA4', recent_area,    by_offer(recent),         False),
-    ('ontrack',   'On track',  'in progress, on time', onTrack,             '#3E9CD6', ontrack_area,   by_offer(ontrackSet),     True),
-    ('overdue',   'Overdue',   'past target date',     len(overdue),        '#C0453F', overdue_area,   by_offer(overdue),        True),
-    ('completed', 'Completed', 'reached 100%',         len(completed_perf), '#2E7D5B', completed_area, by_offer(completed_perf), True),
-]
-FLOW_DEFAULT = 'ontrack'
+# palette: bubble colour -> its light track colour (used by render_demand)
 _flow_track = {'#0B6FA4': '#E9F0F6', '#3E9CD6': '#E4EFF6', '#C0453F': '#F2EAE9', '#2E7D5B': '#E6F1EB'}
-_cmax = max(d[3] for d in FLOW) or 1
-_k = 70.0 / math.sqrt(_cmax)                 # radius so the biggest bubble ~70px
-_radii = {d[0]: max(15, round(math.sqrt(d[3]) * _k)) for d in FLOW}
-_maxR = max(_radii.values())
 
-flow_band = ''
-for i, (key, label, sub, count, col, area, offer, showpct) in enumerate(FLOW):
-    r = _radii[key]; dia = 2 * r
-    fs = max(13, min(34, round(r * 0.85)))
-    on = ' on' if key == FLOW_DEFAULT else ''
-    pcttxt = f'{round(100 * count / flow_total)}% of all TA' if showpct else 'inflow · 30d'
-    flow_band += (f'<div class="flownode{on}" data-flow="{key}" onclick="showFlow(\'{key}\')">'
-                  f'<div class="flowcircwrap" style="height:{2 * _maxR}px;animation-delay:{i * 0.1:.2f}s">'
-                  f'<div class="flowcirc" style="--c:{col};width:{dia}px;height:{dia}px">'
-                  f'<span class="flownum" data-val="{count}" style="color:{col};font-size:{fs}px">{count}</span></div></div>'
-                  f'<div class="flowlabel">{label}</div><div class="flowsub">{sub}</div>'
-                  f'<div class="flowpct" style="color:{col}">{pcttxt}</div></div>')
-    if i < len(FLOW) - 1:
-        flow_band += f'<div class="flowarrow" style="height:{2 * _maxR}px">&rarr;</div>'
-
-flow_bars = ''
-for key, label, sub, count, col, area, offer, showpct in FLOW:
-    disp = 'block' if key == FLOW_DEFAULT else 'none'
-    trk = _flow_track.get(col, "#E9F0F6")
-    flow_bars += (f'<div class="flowbarbox" data-flow="{key}" style="display:{disp}">'
-                  f'<div class="cardtitle">{label} — by thematic area</div>'
-                  f'{barlist(area, col, trk, label_w=300, right=True, pct=True, denom=area_total)}'
-                  f'<div class="divider"></div>'
-                  f'<div class="cardtitle">{label} — by programme offer</div>'
-                  f'{barlist(offer, col, trk, label_w=300, right=True, pct=True, denom=offer_total)}'
-                  f'<div class="barnote">% is the share of each thematic area’s (or programme offer’s) '
-                  f'own portfolio that is {label.lower()}.</div></div>')
-
-_onpct = round(100 * onTrack / flow_total)
-_ovpct = round(100 * len(overdue) / flow_total)
-_dopct = round(100 * len(completed_perf) / flow_total)
-flow_card = (
-    '<div class="card">'
-    f'<div class="cardtitle" style="margin-bottom:2px">Where the {flow_total} nutrition TA requests stand today</div>'
-    f'<div style="font-size:12.5px;color:#5B7186;margin-bottom:8px">Each circle is sized by its share of the portfolio — '
-    f'<b style="color:#3E9CD6">{_onpct}% on track</b>, <b style="color:#2E7D5B">{_dopct}% completed</b>, and '
-    f'<b style="color:#C0453F">{_ovpct}% overdue</b>. Click a circle to break that group down by thematic area.</div>'
-    f'<div class="flowband">{flow_band}</div>'
-    '<div class="flownote"><b>On track</b>, <b>Overdue</b> and <b>Completed</b> cover the whole portfolio. '
-    '<b>Received</b> is the 30-day inflow and already counted within the other three by their status.</div>'
-    '<div class="divider"></div>'
-    f'<div class="flowbars">{flow_bars}</div>'
-    '</div>'
-)
-
-# newest + overdue tables
-for c in cases: c['_m'] = ''
-newest = sorted(recent, key=lambda c: -((c['cr'] or c['op']) or 0))
-for c in newest: c['_m'] = str(round(TODAY - (c['cr'] or c['op'])))
-for c in overdue: c['_m'] = '+' + str(round(TODAY - c['xc']))
-
-# overdue severity
-ob = [('1–30 days', sum(1 for c in overdue if TODAY - c['xc'] <= 30), '#E0A21E'),
-      ('31–60 days', sum(1 for c in overdue if 30 < TODAY - c['xc'] <= 60), '#CD6A2E'),
-      ('>60 days', sum(1 for c in overdue if TODAY - c['xc'] > 60), '#C0453F')]
-ob_max = max((n for _, n, _ in ob), default=1) or 1
+for c in cases: c['_m'] = ''   # default metric column; each table sets its own
 
 # stalled at 0% by thematic area (severity stacked)
-def stalled_area_rows(stalled=None):
-    if stalled is None:
-        stalled = globals().get('stalled', [])
+def stalled_area_rows(stalled):
     g = groupby_area(stalled)
     if not g: return ''
     mx = max((len(v) for _, v in g), default=1) or 1
@@ -405,29 +298,6 @@ def stalled_area_rows(stalled=None):
                 f'<div class="arealabel">{esc(name)}</div>{seg_bar(segs, 100*len(rows)/mx, 11, "#F5EEDF")}'
                 f'<div class="an">{len(rows)}</div></div>')
     return out
-
-# workload
-lead_map = defaultdict(list)
-for c in PERF:
-    if c['lead']: lead_map[c['lead']].append(c)
-lead_groups = sorted(lead_map.items(), key=lambda kv: -len(kv[1]))
-counts = [len(v) for _, v in lead_groups]
-load_min, load_max, load_avg = min(counts), max(counts), sum(counts)/len(counts)
-lmax = max(counts) or 1
-lead_html = ''
-for name, rows in lead_groups:
-    lead_html += (f'<div class="leadrow"><div class="leadlabel"><div class="leadname">{esc(name)}</div>'
-                  f'<div class="leadarea">{esc(rows[0]["area"])}</div></div>'
-                  f'{seg_bar(stacked_segs(rows), 100*len(rows)/lmax, 11)}<div class="ln">{len(rows)}</div></div>')
-
-mgmt_kpis = kpi_strip([
-    ('Open → assignment', 'N/A', 'measure coming soon', '#9AA7B2', '#9AA7B2'),
-    ('Assignment → first response', 'N/A', 'measure coming soon', '#9AA7B2', '#9AA7B2'),
-    ('Opened last 30 days', str(len(recent)), 'new requests received', '#0B6FA4', '#0F2238'),
-    ('Closed last 30 days', str(len(closed30)), f'vs {len(recent)} received — throughput', '#2E7D5B', '#0F2238'),
-    ('Stalled at 0%', str(len(stalled)), 'open >30 days, no progress', '#E0A21E', '#E0A21E'),
-    ('Discontinued', str(len(disc)), f'{pct(len(disc), len(CO))}% requests dropped', '#9AA7B2', '#5B7186'),
-])
 
 # ======================================================================
 # WHERE SUPPORT FLOWS — geographic map (origin duty station -> destination)
@@ -453,72 +323,10 @@ def hub_of(c):
 def slug(x):
     return re.sub(r'[^a-z0-9]+', '', x.lower()) or 'x'
 
-hub_total = Counter(hub_of(c) for c in flowcases)
-hub_leads = defaultdict(Counter)   # hub -> {lead: n}
-for c in flowcases:
-    if c['lead']:
-        hub_leads[hub_of(c)][c['lead']] += 1
-
-# headline figures
-ordered_hubs = sorted([n for n in HUB_META if hub_total.get(n, 0)], key=lambda n: -hub_total[n])
-n_hubs = len(ordered_hubs)
-n_countries = len({c['office'] for c in flowcases if c['office']})
-n_resolved = sum(hub_total[h] for h in ordered_hubs)
-n_blank = hub_total.get('(blank)', 0)
-n_unassigned = hub_total.get('(unassigned)', 0)
-
-LOC_ORDER = ordered_hubs + ['Blank']            # Nairobi … New York, then Blank
 LOC_COLOR = {**{n: HUB_META[n][3] for n in HUB_META}, 'Blank': '#9AA7B2'}
 
 def loc_key(c):
     return c['loc'] if c['loc'] in HUB_META else 'Blank'
-
-loc_total = Counter(loc_key(c) for c in flowcases)
-loc_leadcount = {L: len({c['lead'] for c in flowcases if loc_key(c) == L and c['lead']}) for L in LOC_ORDER}
-# location -> thematic area -> staff -> Counter(implementation status)
-loc_area = {L: defaultdict(lambda: defaultdict(Counter)) for L in LOC_ORDER}
-# location -> thematic area -> set of supported country offices
-loc_area_countries = {L: defaultdict(set) for L in LOC_ORDER}
-for c in flowcases:
-    L = loc_key(c)
-    loc_area[L][c['area']][c['lead'] or '(unassigned lead)'][c['status']] += 1
-    if c['office']:
-        loc_area_countries[L][c['area']].add(c['office'])
-
-# per-hub tooltip content for the map (thematic areas + staff-per-area, countries supported)
-station_tips = {}
-for L in HUB_META:
-    hc = [c for c in flowcases if hub_of(c) == L]
-    if not hc:
-        continue
-    countries = len({c['office'] for c in hc if c['office']})
-    area_staff = defaultdict(set)
-    for c in hc:
-        if c['lead']:
-            area_staff[c['area']].add(c['lead'])
-    nstaff = len({c['lead'] for c in hc if c['lead']})
-    rows = ''.join(
-        f'<div><span>{esc("No lead" if a == "(unassigned lead)" else a)}</span><b>{len(s)} staff</b></div>'
-        for a, s in sorted(area_staff.items(), key=lambda kv: -len(kv[1])))
-    station_tips[L] = (
-        f'<div class="maptip-title"><span class="mtdot" style="background:{HUB_META[L][3]}"></span>{esc(L)}</div>'
-        f'<div class="maptip-sub">{len(hc)} requests · {countries} countries supported · {nstaff} staff</div>'
-        f'<div class="maptip-areas">{rows}</div>')
-
-# map inputs
-office_counts = Counter(c['office'] for c in flowcases if c['loc'] in HUB_META and c['office'])
-office_totals = Counter(c['office'] for c in flowcases if c['office'])   # all requests per country
-links = Counter((c['loc'], c['office']) for c in flowcases if c['loc'] in HUB_META and c['office'])
-stations = [{'name': n, 'key': slug(n), 'lon': lo, 'lat': la, 'anchor': an, 'color': co,
-             'count': hub_total.get(n, 0), 'tip': station_tips.get(n, '')}
-            for n, (lo, la, an, co) in HUB_META.items() if hub_total.get(n, 0)]
-flow_map = worldmap.build_world_map(stations, office_counts, links, office_totals)
-
-loc_tabs = ''
-for L in LOC_ORDER:
-    on = ' on' if L == LOC_ORDER[0] else ''
-    loc_tabs += (f'<button class="loctab{on}" data-loc="{slug(L)}" onclick="showLoc(\'{slug(L)}\')">'
-                 f'<span class="ltdot" style="background:{LOC_COLOR[L]}"></span>{esc(L)} <b>{loc_total.get(L, 0)}</b></button>')
 
 def status_waffle(counter, cls='', label=None):
     """A unit chart: one little square per TA request, coloured by implementation
@@ -531,12 +339,10 @@ def status_waffle(counter, cls='', label=None):
     tail = f'<span class="stn">{label}</span>' if label is not None else ''
     return f'<div class="waffle {cls}">{sq}{tail}</div>'
 
-def build_loc_bars(L, areas, lac=None):
+def build_loc_bars(L, areas, lac):
     """Collapsible thematic areas; each shows a square per TA (coloured by status).
     Expand for staff. All closed. `areas` = list of (area, {staff: Counter(status)}).
-    `lac` = location→area→{countries} map (defaults to the module-level one)."""
-    if lac is None:
-        lac = loc_area_countries
+    `lac` = location→area→{countries} map for this filter variant."""
     col = LOC_COLOR[L]
     out = ''
     for area, staff_map in areas:
@@ -564,21 +370,6 @@ def build_loc_bars(L, areas, lac=None):
                 f'</div></div></summary>'
                 f'<div class="staffwrap">{staff_rows}</div></details>')
     return out
-
-loc_panels = ''
-def _area_total(kv):
-    return sum(sum(sc.values()) for sc in kv[1].values())
-
-for L in LOC_ORDER:
-    areas = sorted(loc_area[L].items(), key=lambda kv: -_area_total(kv))
-    n_areas = len([a for a, _ in areas if a != '(unassigned lead)'])
-    disp = 'block' if L == LOC_ORDER[0] else 'none'
-    nlead = loc_leadcount.get(L, 0)
-    summary = (f'{nlead} TA lead{"s" if nlead != 1 else ""} · {n_areas} thematic area'
-               f'{"s" if n_areas != 1 else ""} · {loc_total.get(L, 0)} requests led')
-    loc_panels += (f'<div class="locpanel" data-loc="{slug(L)}" style="display:{disp}">'
-                   f'<div class="locsummary">{summary}</div>'
-                   f'{build_loc_bars(L, areas)}</div>')
 
 # ======================================================================
 # DATA QUALITY (co = CO, all statuses)
