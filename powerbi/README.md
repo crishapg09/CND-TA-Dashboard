@@ -78,9 +78,35 @@ the web dashboard's custom click-to-highlight, and it's more powerful because it
 filters the whole page at once.
 
 ### Data Quality page
-Reuse the same model: cards for `Unassigned`, in-setup and delivery counts;
-completeness = `DIVIDE(COUNTROWS(non-blank field), Total)` per field; tables for
-the flag lists. (Ask and I'll add the DAX for these once the Management page is up.)
+
+Import `measures_dataquality.dax` and add its two small disconnected tables
+(`Field`, `Aging`) — the DAX comments give the exact `DATATABLE` definitions.
+It reads the same model through the implementation-status lifecycle.
+
+| Dashboard element | Power BI visual | Fields / measures |
+|---|---|---|
+| DQ KPI strip | **Card** ×6 | `Awaiting assignment`, `In setup (0-25%)`, `Stalled in setup`, `In delivery (started)`, `Needing cleanup`, `Overdue` |
+| **Stage 1 — received & in review** | | |
+| Setup funnel | **Bar** | Axis `Cases[Implementation Status]` (filter to Unassigned/0%/25%); value `Setup total` |
+| Time-in-stage aging | **Bar** | Axis `Aging[Band]`; value `Setup in band` |
+| Stalled / unassigned / 0% by thematic area | **Bar** ×3 | Axis `Staff[Thematic Area]`; value `Stalled in setup` (or slice status) |
+| Ready to advance · setup contradictions | **Card** ×2 | `Ready to advance`, `No lead in setup` |
+| Most stalled setup requests | **Table** | case fields + `Days in stage` (calc column), sort desc |
+| **Stage 2 — started & in delivery** | | |
+| Field completeness | **Bar** | Axis `Field[Field]`; value `Completeness %` (format %) |
+| Delivery quality score | **Card / gauge** | `Delivery quality score %` |
+| Quality by thematic area | **Bar** | Axis `Staff[Thematic Area]`; value `Delivery quality score %` |
+| Delivery flags | **Card**s (or bar) | `Flag — missing objectives`, `Flag — no TA lead`, `Flag — no expected completion`, `Flag — completion before start` |
+| Possible duplicates | **Card** | `Possible duplicates` |
+| Requests needing cleanup | **Table** | delivery rows failing a check (build a filter on the flag conditions) |
+| **Stage 3 — overdue, at-risk & closure** | | |
+| Overdue · at-risk | **Card** ×2 | `Overdue`, `At risk (next 30 days)` |
+| Overdue severity | **Bar** | Axis `Severity[Band]`; value `Overdue in band` (from `measures.dax`) |
+| Overdue by thematic area | **Bar** | Axis `Staff[Thematic Area]`; value `Overdue` |
+| Not closed | **Card + table** | `Not closed`; table of 100%/Discontinued rows with blank `Closed` |
+
+Same trick for interactivity: a `Staff[Thematic Area]` or `Implementation
+Status` slicer cross-filters the whole page.
 
 ---
 
@@ -124,10 +150,11 @@ live model so the table/column names match exactly.
 ## Files
 ```
 powerbi/
-  README.md                 this file
-  measures.dax              phase-1 measures (native visuals)
-  Stations.csv              pre-projected duty stations   (phase-2 map)
-  Geo.csv                   pre-projected country offices (phase-2 map)
-  MapBase.csv               static world silhouette SVG   (phase-2 map)
-  build_powerbi_assets.py   regenerates the three CSVs from the data
+  README.md                    this file
+  measures.dax                 phase-1 measures — Management page
+  measures_dataquality.dax     phase-1 measures — Data Quality page
+  Stations.csv                 pre-projected duty stations   (phase-2 map)
+  Geo.csv                      pre-projected country offices (phase-2 map)
+  MapBase.csv                  static world silhouette SVG   (phase-2 map)
+  build_powerbi_assets.py      regenerates the three CSVs from the data
 ```

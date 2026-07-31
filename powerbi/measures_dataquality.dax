@@ -1,0 +1,260 @@
+/* =====================================================================
+   Nutrition TA Management — Power BI measures (Data Quality page)
+   ---------------------------------------------------------------------
+   Same model as measures.dax (Cases + Staff, [As Of Date], calc column
+   [Include]). The Data Quality universe is every kept request (Include =
+   TRUE) across ALL statuses — including Discontinued — read through the
+   implementation-status lifecycle:
+
+     Setup / in review  = Unassigned · 0% · 25%   (concern: stalling)
+     Delivery / started = 50% · 75% · 100%        (concern: completeness)
+
+   Two small disconnected tables power a couple of charts — create them:
+
+     Field =
+       DATATABLE ( "Field", STRING, "Ord", INTEGER,
+         { {"Objectives",1}, {"TA lead",2}, {"Expected completion",3},
+           {"Description",4}, {"Modality",5}, {"Programme offer",6} } )
+
+     Aging =
+       DATATABLE ( "Band", STRING, "Ord", INTEGER, "Lo", INTEGER, "Hi", INTEGER,
+         { {"0–14 days",1,0,14}, {"15–30 days",2,15,30}, {"30+ days",3,31,100000} } )
+
+   Optional calculated columns on Cases (handy for the tables):
+     Days in stage =
+        VAR d = [As Of Date]
+        RETURN IF ( Cases[Implementation Status] = "Unassigned",
+                    d - COALESCE ( Cases[Created], Cases[Opened] ),
+                    d - COALESCE ( Cases[Updated], Cases[Created], Cases[Opened] ) )
+     Days overdue = [As Of Date] - Cases[Expected Completion Date]
+   ===================================================================== */
+
+
+/* ---- Stage 1: Received & in review (Unassigned · 0% · 25%) ---- */
+
+Awaiting assignment :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] = "Unassigned" )
+)
+
+In setup (0-25%) :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] IN { "0%", "25%" } )
+)
+
+Setup total :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] IN { "Unassigned", "0%", "25%" } )
+)
+
+-- stalled = Unassigned older than 14 days, or 0%/25% older than 30 days
+Stalled in setup :=
+VAR d = [As Of Date]
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] IN { "Unassigned", "0%", "25%" }
+            && IF (
+                Cases[Implementation Status] = "Unassigned",
+                ( d - COALESCE ( Cases[Created], Cases[Opened] ) ) > 14,
+                ( d - COALESCE ( Cases[Updated], Cases[Created], Cases[Opened] ) ) > 30
+            )
+    )
+)
+
+-- aging bands (bar: axis Aging[Band], value this measure)
+Setup in band :=
+VAR d  = [As Of Date]
+VAR lo = MAX ( Aging[Lo] )
+VAR hi = MAX ( Aging[Hi] )
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] IN { "Unassigned", "0%", "25%" }
+            && VAR sd =
+                IF (
+                    Cases[Implementation Status] = "Unassigned",
+                    d - COALESCE ( Cases[Created], Cases[Opened] ),
+                    d - COALESCE ( Cases[Updated], Cases[Created], Cases[Opened] )
+                )
+               RETURN sd >= lo && sd <= hi
+    )
+)
+
+-- 25% requests that have objectives + a lead + a target date
+Ready to advance :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] = "25%"
+            && NOT ISBLANK ( Cases[Objectives] ) && Cases[Objectives] <> ""
+            && NOT ISBLANK ( Cases[Assigned to] ) && Cases[Assigned to] <> ""
+            && NOT ISBLANK ( Cases[Expected Completion Date] )
+    )
+)
+
+-- contradiction: past assignment (0%/25%) but no TA lead
+No lead in setup :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] IN { "0%", "25%" }
+            && ( ISBLANK ( Cases[Assigned to] ) || Cases[Assigned to] = "" )
+    )
+)
+
+
+/* ---- Stage 2: Started & in delivery (50% · 75% · 100%) ---- */
+
+In delivery (started) :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] IN { "50%", "75%" } )
+)
+
+-- completeness/quality universe = everything at 50%+ (incl 100%)
+Delivery universe :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    KEEPFILTERS ( Cases[Include] = TRUE ),
+    KEEPFILTERS ( Cases[Implementation Status] IN { "50%", "75%", "100%" } )
+)
+
+-- field completeness (bar: axis Field[Field], value Completeness %)
+Field present :=
+VAR f = SELECTEDVALUE ( Field[Field] )
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] IN { "50%", "75%", "100%" }
+            && SWITCH (
+                f,
+                "Objectives",          NOT ISBLANK ( Cases[Objectives] ) && Cases[Objectives] <> "",
+                "TA lead",             NOT ISBLANK ( Cases[Assigned to] ) && Cases[Assigned to] <> "",
+                "Expected completion", NOT ISBLANK ( Cases[Expected Completion Date] ),
+                "Description",         NOT ISBLANK ( Cases[Description] ) && Cases[Description] <> "",
+                "Modality",            NOT ISBLANK ( Cases[Modality] ) && Cases[Modality] <> "",
+                "Programme offer",     NOT ISBLANK ( Cases[Primary Programme Offer] ) && Cases[Primary Programme Offer] <> "",
+                FALSE
+            )
+    )
+)
+
+Completeness % := DIVIDE ( [Field present], [Delivery universe] )
+
+-- passes every check (and completion not before start)
+Delivery passing :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] IN { "50%", "75%", "100%" }
+            && NOT ISBLANK ( Cases[Objectives] ) && Cases[Objectives] <> ""
+            && NOT ISBLANK ( Cases[Assigned to] ) && Cases[Assigned to] <> ""
+            && NOT ISBLANK ( Cases[Expected Completion Date] )
+            && NOT ISBLANK ( Cases[Description] ) && Cases[Description] <> ""
+            && NOT ISBLANK ( Cases[Modality] ) && Cases[Modality] <> ""
+            && NOT ISBLANK ( Cases[Primary Programme Offer] ) && Cases[Primary Programme Offer] <> ""
+            && NOT (
+                NOT ISBLANK ( Cases[Expected Completion Date] )
+                && NOT ISBLANK ( Cases[Expected Start Date] )
+                && Cases[Expected Completion Date] < Cases[Expected Start Date]
+            )
+    )
+)
+
+Delivery quality score % := DIVIDE ( [Delivery passing], [Delivery universe] )
+
+Needing cleanup := [Delivery universe] - [Delivery passing]
+-- Quality by thematic area = [Delivery quality score %] sliced by Staff[Thematic Area]
+
+/* delivery flags (cards or a bar) */
+Flag — missing objectives :=
+CALCULATE ( COUNTROWS ( Cases ),
+    FILTER ( Cases, Cases[Include] = TRUE
+        && Cases[Implementation Status] IN { "50%", "75%", "100%" }
+        && ( ISBLANK ( Cases[Objectives] ) || Cases[Objectives] = "" ) ) )
+
+Flag — no TA lead :=
+CALCULATE ( COUNTROWS ( Cases ),
+    FILTER ( Cases, Cases[Include] = TRUE
+        && Cases[Implementation Status] IN { "50%", "75%", "100%" }
+        && ( ISBLANK ( Cases[Assigned to] ) || Cases[Assigned to] = "" ) ) )
+
+Flag — no expected completion :=
+CALCULATE ( COUNTROWS ( Cases ),
+    FILTER ( Cases, Cases[Include] = TRUE
+        && Cases[Implementation Status] IN { "50%", "75%", "100%" }
+        && ISBLANK ( Cases[Expected Completion Date] ) ) )
+
+Flag — completion before start :=
+CALCULATE ( COUNTROWS ( Cases ),
+    FILTER ( Cases, Cases[Include] = TRUE
+        && Cases[Implementation Status] IN { "50%", "75%", "100%" }
+        && NOT ISBLANK ( Cases[Expected Completion Date] )
+        && NOT ISBLANK ( Cases[Expected Start Date] )
+        && Cases[Expected Completion Date] < Cases[Expected Start Date] ) )
+
+-- shared "requested-for + short description" with another request
+Possible duplicates :=
+VAR t =
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && NOT ISBLANK ( Cases[Requested For] ) && Cases[Requested For] <> ""
+            && NOT ISBLANK ( Cases[Short description] ) && Cases[Short description] <> ""
+    )
+RETURN
+COUNTROWS ( t ) - COUNTROWS ( SUMMARIZE ( t, Cases[Requested For], Cases[Short description] ) )
+
+
+/* ---- Stage 3: Overdue, at-risk & closure ---- */
+-- ( [Overdue] is defined in measures.dax )
+
+At risk (next 30 days) :=
+VAR d = [As Of Date]
+RETURN
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && NOT ( Cases[Implementation Status] IN { "100%", "Discontinued" } )
+            && NOT ISBLANK ( Cases[Expected Completion Date] )
+            && Cases[Expected Completion Date] >= d
+            && Cases[Expected Completion Date] <= d + 30
+    )
+)
+
+-- completed or discontinued but never closed out
+Not closed :=
+CALCULATE (
+    COUNTROWS ( Cases ),
+    FILTER (
+        Cases,
+        Cases[Include] = TRUE
+            && Cases[Implementation Status] IN { "100%", "Discontinued" }
+            && ISBLANK ( Cases[Closed] )
+    )
+)
