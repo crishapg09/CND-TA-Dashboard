@@ -91,15 +91,20 @@ def seg_bar(segs, width_pct, h=12, track='#EEF2F6'):
     return (f'<div class="track" style="height:{h}px;background:{track};border-radius:{h/2}px">'
             f'<div class="bar" style="height:100%;width:{width_pct:.1f}%;border-radius:{h/2}px">{inner}</div></div>')
 
-def barlist(items, color, track='#E9F0F6', label_w=64, empty='None in the current filter.'):
+def barlist(items, color, track='#E9F0F6', label_w=64, empty='None in the current filter.',
+            right=False, pct=False):
     if not items: return f'<div class="muted">{empty}</div>'
     mx = max(n for _, n in items) or 1
+    tot = sum(n for _, n in items) or 1
+    lblcls = 'bllabel right' if right else 'bllabel'
+    cols = f'{label_w}px 1fr 34px' + (' 44px' if pct else '')
     rows = ''
     for label, n in items:
-        rows += (f'<div class="blrow" style="grid-template-columns:{label_w}px 1fr 34px">'
-                 f'<div class="bllabel">{esc(label)}</div>'
+        pcttd = f'<div class="blpct">{round(100 * n / tot)}%</div>' if pct else ''
+        rows += (f'<div class="blrow" style="grid-template-columns:{cols}">'
+                 f'<div class="{lblcls}">{esc(label)}</div>'
                  f'<div class="track" style="height:9px;background:{track};border-radius:5px"><div style="height:100%;width:{100*n/mx:.1f}%;background:{color};border-radius:5px"></div></div>'
-                 f'<div class="bln">{n}</div></div>')
+                 f'<div class="bln">{n}</div>{pcttd}</div>')
     return rows
 
 def bucket_bars(buckets, label_w=92):
@@ -298,9 +303,10 @@ for key, label, sub, count, col, area, offer, showpct in FLOW:
     trk = _flow_track.get(col, "#E9F0F6")
     flow_bars += (f'<div class="flowbarbox" data-flow="{key}" style="display:{disp}">'
                   f'<div class="cardtitle">{label} — by thematic area</div>'
-                  f'{barlist(area, col, trk, label_w=250)}'
-                  f'<div class="cardtitle" style="margin-top:22px">{label} — by programme offer</div>'
-                  f'{barlist(offer, col, trk, label_w=250)}</div>')
+                  f'{barlist(area, col, trk, label_w=300, right=True, pct=True)}'
+                  f'<div class="divider"></div>'
+                  f'<div class="cardtitle">{label} — by programme offer</div>'
+                  f'{barlist(offer, col, trk, label_w=300, right=True, pct=True)}</div>')
 
 _onpct = round(100 * onTrack / flow_total)
 _ovpct = round(100 * len(overdue) / flow_total)
@@ -693,7 +699,9 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 
   .blrow {{ display:grid; align-items:center; gap:10px; margin-bottom:9px; }}
   .bllabel {{ font-size:12px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .bllabel.right {{ font-size:13px; text-align:right; white-space:normal; overflow:visible; text-overflow:clip; line-height:1.3; }}
   .bln {{ text-align:right; font-weight:700; font-size:12.5px; font-variant-numeric:tabular-nums; }}
+  .blpct {{ text-align:right; font-size:11.5px; color:#9AA7B2; font-weight:600; font-variant-numeric:tabular-nums; }}
 
   .arearow {{ display:grid; align-items:center; gap:12px; margin-bottom:11px; }}
   .arealabel {{ font-size:12.5px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
