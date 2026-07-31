@@ -260,6 +260,10 @@ for label, o, d in io:
                 f'<div class="mbarwrap"><div class="mval" style="color:#2E7D5B">{d}</div><div class="mbar" style="height:{round(140*d/io_max)}px;background:#2E7D5B"></div></div>'
                 f'</div><div class="mlabel">{label}</div></div>')
 io_opened = sum(o for _, o, _ in io); io_done = sum(d for _, _, d in io)
+io_net = io_opened - io_done
+io_clear = round(100 * io_done / io_opened) if io_opened else 0
+active_total = len(ontrackSet) + len(overdue)  # the standing "active pile"
+overdue_share = round(100 * len(overdue) / active_total) if active_total else 0
 
 # received last 30 / on track / overdue / completed — by thematic area & by programme offer
 def by_offer(rows):
@@ -883,6 +887,14 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .flownote {{ font-size:11.5px; color:#8A98A6; text-align:center; margin-top:6px; line-height:1.5; }}
   .flowbars {{ margin-top:2px; }}
 
+  /* inflow -> bottleneck throughput strip */
+  .thruput {{ display:flex; align-items:stretch; flex-wrap:wrap; gap:10px; margin:0 0 16px; }}
+  .tp {{ flex:1; min-width:150px; background:#fff; border:1px solid #E3E9EF; border-radius:10px; padding:14px 16px; }}
+  .tpn {{ font-size:27px; font-weight:700; letter-spacing:-.02em; line-height:1.05; font-variant-numeric:tabular-nums; }}
+  .tpl {{ font-size:11.5px; color:#5B7186; font-weight:600; margin-top:4px; line-height:1.4; }}
+  .tparr {{ display:flex; align-items:center; color:#C4CDD6; font-size:22px; font-weight:700; }}
+  @media (max-width:620px) {{ .tparr {{ display:none; }} }}
+
   .sevlegend {{ display:flex; gap:16px; flex-wrap:wrap; }}
   .sevbar {{ display:flex; height:30px; border-radius:6px; overflow:hidden; border:1px solid #E3E9EF; }}
   .sevtags {{ display:flex; gap:24px; margin-top:10px; font-size:12.5px; flex-wrap:wrap; }}
@@ -934,7 +946,21 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div class="subpanel-perf" id="demand" style="display:block">
       {panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
       {flow_card}
-      <div class="card mt16">
+      <div class="divider" style="margin:26px 0 18px"></div>
+      <div class="panelhead" style="margin:0 0 14px">
+        <div class="pt">Inflow and bottlenecks</div>
+        <div class="ps">The bubbles above are today’s standing portfolio. This is the flow behind them — new requests keep arriving far faster than the team can close them, so the active pile grows and ages. The charts below show how fast it is building, and where the work gets stuck.</div>
+      </div>
+      <div class="thruput">
+        <div class="tp"><div class="tpn" style="color:#0B6FA4">{io_opened}</div><div class="tpl">opened since April</div></div>
+        <div class="tparr">&minus;</div>
+        <div class="tp"><div class="tpn" style="color:#2E7D5B">{io_done}</div><div class="tpl">completed to 100%</div></div>
+        <div class="tparr">=</div>
+        <div class="tp"><div class="tpn" style="color:#C0453F">+{io_net}</div><div class="tpl">net added to the active pile</div></div>
+        <div class="tp"><div class="tpn" style="color:#0F2238">{io_clear}%</div><div class="tpl">clearance rate — completed &divide; opened</div></div>
+        <div class="tp"><div class="tpn" style="color:#C0453F">{overdue_share}%</div><div class="tpl">of the active pile is already overdue</div></div>
+      </div>
+      <div class="card">
         <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
           <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
           <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Opened</div><div class="lg"><span class="lgdot" style="background:#2E7D5B"></span>Completed</div></div>
