@@ -252,20 +252,23 @@ for label, o, d in io:
                 f'</div><div class="mlabel">{label}</div></div>')
 io_opened = sum(o for _, o, _ in io); io_done = sum(d for _, _, d in io)
 
-# received last 30 / on track / overdue / completed — by thematic area
+# received last 30 / on track / overdue / completed — by thematic area & by programme offer
+def by_offer(rows):
+    return Counter(c['offer'] or '(no offer)' for c in rows).most_common()
+
 recent_area = [(k, len(v)) for k, v in groupby_area(recent)]
 ontrack_area = [(k, len(v)) for k, v in groupby_area(ontrackSet)]
 overdue_area = [(k, len(v)) for k, v in groupby_area(overdue)]
 completed_perf = [c for c in PERF if c['status'] == '100%']
 completed_area = [(k, len(v)) for k, v in groupby_area(completed_perf)]
 
-# ---- "flow of work" — bubbles sized by share of all requests, click -> by-area bar ----
+# ---- "flow of work" — bubbles sized by share of all requests, click -> by-area/offer bars ----
 flow_total = len(PERF)
-FLOW = [   # key, label, sub, count, colour, by-area data, show-% -of-total
-    ('received',  'Received',  'new · last 30 days',   len(recent),         '#0B6FA4', recent_area,   False),
-    ('ontrack',   'On track',  'in progress, on time', onTrack,             '#3E9CD6', ontrack_area,  True),
-    ('overdue',   'Overdue',   'past target date',     len(overdue),        '#C0453F', overdue_area,  True),
-    ('completed', 'Completed', 'reached 100%',         len(completed_perf), '#2E7D5B', completed_area, True),
+FLOW = [   # key, label, sub, count, colour, by-area data, by-offer data, show-% -of-total
+    ('received',  'Received',  'new · last 30 days',   len(recent),         '#0B6FA4', recent_area,    by_offer(recent),         False),
+    ('ontrack',   'On track',  'in progress, on time', onTrack,             '#3E9CD6', ontrack_area,   by_offer(ontrackSet),     True),
+    ('overdue',   'Overdue',   'past target date',     len(overdue),        '#C0453F', overdue_area,   by_offer(overdue),        True),
+    ('completed', 'Completed', 'reached 100%',         len(completed_perf), '#2E7D5B', completed_area, by_offer(completed_perf), True),
 ]
 FLOW_DEFAULT = 'ontrack'
 _flow_track = {'#0B6FA4': '#E9F0F6', '#3E9CD6': '#E4EFF6', '#C0453F': '#F2EAE9', '#2E7D5B': '#E6F1EB'}
@@ -275,7 +278,7 @@ _radii = {d[0]: max(15, round(math.sqrt(d[3]) * _k)) for d in FLOW}
 _maxR = max(_radii.values())
 
 flow_band = ''
-for i, (key, label, sub, count, col, area, showpct) in enumerate(FLOW):
+for i, (key, label, sub, count, col, area, offer, showpct) in enumerate(FLOW):
     r = _radii[key]; dia = 2 * r
     fs = max(13, min(34, round(r * 0.85)))
     on = ' on' if key == FLOW_DEFAULT else ''
@@ -290,11 +293,14 @@ for i, (key, label, sub, count, col, area, showpct) in enumerate(FLOW):
         flow_band += f'<div class="flowarrow" style="height:{2 * _maxR}px">&rarr;</div>'
 
 flow_bars = ''
-for key, label, sub, count, col, area, showpct in FLOW:
+for key, label, sub, count, col, area, offer, showpct in FLOW:
     disp = 'block' if key == FLOW_DEFAULT else 'none'
+    trk = _flow_track.get(col, "#E9F0F6")
     flow_bars += (f'<div class="flowbarbox" data-flow="{key}" style="display:{disp}">'
                   f'<div class="cardtitle">{label} — by thematic area</div>'
-                  f'{barlist(area, col, _flow_track.get(col, "#E9F0F6"), label_w=250)}</div>')
+                  f'{barlist(area, col, trk, label_w=250)}'
+                  f'<div class="cardtitle" style="margin-top:22px">{label} — by programme offer</div>'
+                  f'{barlist(offer, col, trk, label_w=250)}</div>')
 
 _onpct = round(100 * onTrack / flow_total)
 _ovpct = round(100 * len(overdue) / flow_total)
