@@ -325,7 +325,7 @@ flow_card = (
     '<div class="card">'
     f'<div class="cardtitle" style="margin-bottom:2px">Where the {flow_total} nutrition TA requests stand today</div>'
     f'<div style="font-size:12.5px;color:#5B7186;margin-bottom:8px">Each circle is sized by its share of the portfolio — '
-    f'<b style="color:#3E9CD6">{_onpct}% on track</b>, <b style="color:#2E7D5B">{_dopct}% completed</b>, and just '
+    f'<b style="color:#3E9CD6">{_onpct}% on track</b>, <b style="color:#2E7D5B">{_dopct}% completed</b>, and '
     f'<b style="color:#C0453F">{_ovpct}% overdue</b>. Click a circle to break that group down by thematic area.</div>'
     f'<div class="flowband">{flow_band}</div>'
     '<div class="flownote"><b>On track</b>, <b>Overdue</b> and <b>Completed</b> cover the whole portfolio. '
@@ -867,12 +867,12 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .flowband {{ display:flex; align-items:flex-start; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
   .flownode {{ cursor:pointer; text-align:center; padding:10px 12px; border-radius:14px; transition:background .15s; }}
   .flowcircwrap {{ display:flex; align-items:center; justify-content:center; animation:flowgrow .6s cubic-bezier(.34,1.56,.64,1) both; }}
-  .flowcirc {{ border-radius:50%; border:2px solid color-mix(in srgb, var(--c) 70%, transparent); display:flex; align-items:center; justify-content:center;
-    background:radial-gradient(circle at 32% 26%, #ffffff 0%, color-mix(in srgb, var(--c) 9%, #fff) 56%, color-mix(in srgb, var(--c) 20%, #fff) 100%);
-    box-shadow:0 6px 16px color-mix(in srgb, var(--c) 30%, transparent), 0 1px 2px rgba(15,34,56,.07), inset 0 3px 7px rgba(255,255,255,.9);
-    transition:transform .2s ease, box-shadow .2s ease; }}
-  .flownode:hover .flowcirc {{ transform:translateY(-3px) scale(1.03); box-shadow:0 13px 26px color-mix(in srgb, var(--c) 40%, transparent), 0 2px 4px rgba(15,34,56,.1), inset 0 3px 7px rgba(255,255,255,.92); }}
-  .flownode.on .flowcirc {{ transform:translateY(-2px) scale(1.03); box-shadow:0 0 0 3px #fff, 0 0 0 5px color-mix(in srgb, var(--c) 55%, #fff), 0 12px 26px color-mix(in srgb, var(--c) 38%, transparent), inset 0 3px 7px rgba(255,255,255,.92); }}
+  .flowcirc {{ border-radius:50%; border:2px solid color-mix(in srgb, var(--c) 48%, transparent); display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(180deg, color-mix(in srgb, var(--c) 6%, #fff) 0%, color-mix(in srgb, var(--c) 15%, #fff) 100%);
+    box-shadow:0 8px 22px rgba(15,34,56,.10), 0 2px 5px rgba(15,34,56,.05);
+    transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }}
+  .flownode:hover .flowcirc {{ transform:translateY(-3px) scale(1.02); box-shadow:0 14px 30px rgba(15,34,56,.14), 0 3px 7px rgba(15,34,56,.06); }}
+  .flownode.on .flowcirc {{ transform:translateY(-2px) scale(1.02); border-color:var(--c); box-shadow:0 0 0 5px color-mix(in srgb, var(--c) 12%, transparent), 0 12px 28px rgba(15,34,56,.14); }}
   .flownum {{ font-weight:600; font-variant-numeric:tabular-nums; line-height:1; letter-spacing:-.01em; }}
   @keyframes flowgrow {{ from {{ transform:scale(.3); opacity:0; }} to {{ transform:scale(1); opacity:1; }} }}
   @media (prefers-reduced-motion: reduce) {{ .flowcircwrap {{ animation:none; }} }}
