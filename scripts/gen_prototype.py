@@ -281,9 +281,9 @@ for i, (key, label, sub, count, col, area, showpct) in enumerate(FLOW):
     on = ' on' if key == FLOW_DEFAULT else ''
     pcttxt = f'{round(100 * count / flow_total)}% of all TA' if showpct else 'inflow · 30d'
     flow_band += (f'<div class="flownode{on}" data-flow="{key}" onclick="showFlow(\'{key}\')">'
-                  f'<div class="flowcircwrap" style="height:{2 * _maxR}px">'
+                  f'<div class="flowcircwrap" style="height:{2 * _maxR}px;animation-delay:{i * 0.1:.2f}s">'
                   f'<div class="flowcirc" style="--c:{col};width:{dia}px;height:{dia}px">'
-                  f'<span class="flownum" style="color:{col};font-size:{fs}px">{count}</span></div></div>'
+                  f'<span class="flownum" data-val="{count}" style="color:{col};font-size:{fs}px">{count}</span></div></div>'
                   f'<div class="flowlabel">{label}</div><div class="flowsub">{sub}</div>'
                   f'<div class="flowpct" style="color:{col}">{pcttxt}</div></div>')
     if i < len(FLOW) - 1:
@@ -841,14 +841,16 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   /* flow-of-work bubbles */
   .flowband {{ display:flex; align-items:flex-start; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
   .flownode {{ cursor:pointer; text-align:center; padding:10px 12px; border-radius:14px; transition:background .15s; }}
-  .flowcircwrap {{ display:flex; align-items:center; justify-content:center; }}
-  .flowcirc {{ border-radius:50%; border:2px solid var(--c); display:flex; align-items:center; justify-content:center;
+  .flowcircwrap {{ display:flex; align-items:center; justify-content:center; animation:flowgrow .6s cubic-bezier(.34,1.56,.64,1) both; }}
+  .flowcirc {{ border-radius:50%; border:2px solid color-mix(in srgb, var(--c) 70%, transparent); display:flex; align-items:center; justify-content:center;
     background:radial-gradient(circle at 32% 26%, #ffffff 0%, color-mix(in srgb, var(--c) 9%, #fff) 56%, color-mix(in srgb, var(--c) 20%, #fff) 100%);
     box-shadow:0 6px 16px color-mix(in srgb, var(--c) 30%, transparent), 0 1px 2px rgba(15,34,56,.07), inset 0 3px 7px rgba(255,255,255,.9);
     transition:transform .2s ease, box-shadow .2s ease; }}
   .flownode:hover .flowcirc {{ transform:translateY(-3px) scale(1.03); box-shadow:0 13px 26px color-mix(in srgb, var(--c) 40%, transparent), 0 2px 4px rgba(15,34,56,.1), inset 0 3px 7px rgba(255,255,255,.92); }}
-  .flownode.on .flowcirc {{ transform:translateY(-2px) scale(1.03); box-shadow:0 0 0 3px #fff, 0 0 0 5px color-mix(in srgb, var(--c) 60%, #fff), 0 12px 26px color-mix(in srgb, var(--c) 38%, transparent), inset 0 3px 7px rgba(255,255,255,.92); }}
-  .flownum {{ font-weight:800; font-variant-numeric:tabular-nums; line-height:1; letter-spacing:-.02em; }}
+  .flownode.on .flowcirc {{ transform:translateY(-2px) scale(1.03); box-shadow:0 0 0 3px #fff, 0 0 0 5px color-mix(in srgb, var(--c) 55%, #fff), 0 12px 26px color-mix(in srgb, var(--c) 38%, transparent), inset 0 3px 7px rgba(255,255,255,.92); }}
+  .flownum {{ font-weight:600; font-variant-numeric:tabular-nums; line-height:1; letter-spacing:-.01em; }}
+  @keyframes flowgrow {{ from {{ transform:scale(.3); opacity:0; }} to {{ transform:scale(1); opacity:1; }} }}
+  @media (prefers-reduced-motion: reduce) {{ .flowcircwrap {{ animation:none; }} }}
   .flowlabel {{ font-size:13.5px; font-weight:700; color:#0F2238; margin-top:12px; }}
   .flowsub {{ font-size:11px; color:#8A98A6; margin-top:1px; }}
   .flowpct {{ font-size:11.5px; font-weight:700; margin-top:4px; }}
@@ -1127,6 +1129,24 @@ function applyHub(){{
   if(hint) hint.textContent = selHub===null ? hint.getAttribute('data-idle')
     : 'Highlighting the countries this duty station supports — click it again, or the map, to reset.';
 }}
+(function(){{
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var nums = document.querySelectorAll('.flownum');
+  for(var i=0;i<nums.length;i++){{ (function(el,idx){{
+    var target = parseInt(el.getAttribute('data-val'),10) || 0;
+    if(reduce){{ el.textContent = target; return; }}
+    el.textContent = '0';
+    var dur = 750, delay = idx*100, t0 = null;
+    function step(ts){{
+      if(t0===null) t0 = ts;
+      var p = Math.min(1,(ts-t0)/dur);
+      var e = 1 - Math.pow(1-p,3);
+      el.textContent = Math.round(e*target);
+      if(p<1) requestAnimationFrame(step); else el.textContent = target;
+    }}
+    setTimeout(function(){{ requestAnimationFrame(step); }}, delay);
+  }})(nums[i],i); }}
+}})();
 </script>
 </body></html>'''
 
