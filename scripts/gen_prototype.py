@@ -287,7 +287,7 @@ for i, (key, label, sub, count, col, area, showpct) in enumerate(FLOW):
                   f'<div class="flowlabel">{label}</div><div class="flowsub">{sub}</div>'
                   f'<div class="flowpct" style="color:{col}">{pcttxt}</div></div>')
     if i < len(FLOW) - 1:
-        flow_band += f'<div class="flowarrow">&rarr;</div>'
+        flow_band += f'<div class="flowarrow" style="height:{2 * _maxR}px">&rarr;</div>'
 
 flow_bars = ''
 for key, label, sub, count, col, area, showpct in FLOW:
@@ -306,6 +306,8 @@ flow_card = (
     f'<b style="color:#3E9CD6">{_onpct}% on track</b>, <b style="color:#2E7D5B">{_dopct}% completed</b>, and just '
     f'<b style="color:#C0453F">{_ovpct}% overdue</b>. Click a circle to break that group down by thematic area.</div>'
     f'<div class="flowband">{flow_band}</div>'
+    '<div class="flownote"><b>On track</b>, <b>Overdue</b> and <b>Completed</b> are mutually exclusive and cover the whole portfolio. '
+    '<b>Received</b> is the 30-day inflow — those new requests are already counted within the other three by their status (they overlap, not add).</div>'
     '<div class="divider"></div>'
     f'<div class="flowbars">{flow_bars}</div>'
     '</div>'
@@ -837,18 +839,19 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .divider {{ height:1px; background:#EDF1F4; margin:22px 0; }}
 
   /* flow-of-work bubbles */
-  .flowband {{ display:flex; align-items:flex-end; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
+  .flowband {{ display:flex; align-items:flex-start; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
   .flownode {{ cursor:pointer; text-align:center; padding:8px 12px 10px; border-radius:12px; border:1px solid transparent; transition:background .15s, border-color .15s; }}
   .flownode:hover {{ background:#F6F8FA; }}
   .flownode.on {{ background:#EEF5FB; border-color:#D3E4F1; }}
-  .flowcircwrap {{ display:flex; align-items:flex-end; justify-content:center; }}
+  .flowcircwrap {{ display:flex; align-items:center; justify-content:center; }}
   .flowcirc {{ border-radius:50%; border:3px solid; display:flex; align-items:center; justify-content:center; transition:transform .15s; }}
   .flownode:hover .flowcirc, .flownode.on .flowcirc {{ transform:scale(1.05); }}
   .flownum {{ font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }}
   .flowlabel {{ font-size:13.5px; font-weight:700; color:#0F2238; margin-top:12px; }}
   .flowsub {{ font-size:11px; color:#8A98A6; margin-top:1px; }}
   .flowpct {{ font-size:11.5px; font-weight:700; margin-top:4px; }}
-  .flowarrow {{ color:#C4CDD6; font-size:22px; align-self:flex-end; padding-bottom:36px; }}
+  .flowarrow {{ color:#C4CDD6; font-size:22px; display:flex; align-items:center; }}
+  .flownote {{ font-size:11.5px; color:#8A98A6; text-align:center; margin-top:6px; line-height:1.5; }}
   .flowbars {{ margin-top:2px; }}
 
   .sevlegend {{ display:flex; gap:16px; flex-wrap:wrap; }}
