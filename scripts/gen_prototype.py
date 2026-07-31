@@ -388,7 +388,9 @@ ob = [('1–30 days', sum(1 for c in overdue if TODAY - c['xc'] <= 30), '#E0A21E
 ob_max = max((n for _, n, _ in ob), default=1) or 1
 
 # stalled at 0% by thematic area (severity stacked)
-def stalled_area_rows():
+def stalled_area_rows(stalled=None):
+    if stalled is None:
+        stalled = globals().get('stalled', [])
     g = groupby_area(stalled)
     if not g: return ''
     mx = max((len(v) for _, v in g), default=1) or 1
@@ -529,9 +531,12 @@ def status_waffle(counter, cls='', label=None):
     tail = f'<span class="stn">{label}</span>' if label is not None else ''
     return f'<div class="waffle {cls}">{sq}{tail}</div>'
 
-def build_loc_bars(L, areas):
+def build_loc_bars(L, areas, lac=None):
     """Collapsible thematic areas; each shows a square per TA (coloured by status).
-    Expand for staff. All closed. `areas` = list of (area, {staff: Counter(status)})."""
+    Expand for staff. All closed. `areas` = list of (area, {staff: Counter(status)}).
+    `lac` = location→area→{countries} map (defaults to the module-level one)."""
+    if lac is None:
+        lac = loc_area_countries
     col = LOC_COLOR[L]
     out = ''
     for area, staff_map in areas:
@@ -548,7 +553,7 @@ def build_loc_bars(L, areas):
             staff_rows += (f'<div class="strow"><div class="stname">{esc(stname)}</div>'
                            f'{status_waffle(staff_map[st], "sub", tot)}</div>')
         nstaff = len(staff_map)
-        ncountries = len(loc_area_countries[L].get(area, ()))
+        ncountries = len(lac[L].get(area, ()))
         out += (f'<details class="areadet"><summary class="asum"><div class="arow">'
                 f'<span class="chev">&#9656;</span>'
                 f'<div class="aname">{esc(aname)}</div>'
@@ -694,6 +699,296 @@ def checkitems(items):
 def panelhead(title, sub=''):
     s = f'<div class="ps">{sub}</div>' if sub else ''
     return f'<div class="panelhead"><div class="pt">{esc(title)}</div>{s}</div>'
+
+
+# ======================================================================
+# The Management subtabs, rendered as functions of a request subset so the
+# Big-ticket / Routine filter can pre-render each one and toggle visibility.
+# ======================================================================
+def render_demand(rows):
+    """Status of TA — flow bubbles, inflow/bottleneck charts and the detailed table."""
+    active_r = [c for c in rows if c['status'] not in ('100%', 'Discontinued', 'Unassigned')]
+    overdue_r = sorted([c for c in active_r if c['xc'] is not None and c['xc'] < TODAY],
+                       key=lambda c: -(TODAY - c['xc']))
+    ontrack_r = [c for c in active_r if not (c['xc'] is not None and c['xc'] < TODAY)]
+    onTrack_r = len(ontrack_r)
+    recent_r = sorted([c for c in rows if (c['cr'] or c['op']) and (c['cr'] or c['op']) >= TODAY - 30],
+                      key=lambda c: -((c['cr'] or c['op']) or 0))
+    completed_r = [c for c in rows if c['status'] == '100%']
+    stalled_r = [c for c in active_r if c['status'] == '0%' and c['op'] is not None and TODAY - c['op'] > 30]
+    flow_total = len(rows) or 1
+    area_total_r = Counter(c['area'] for c in rows)
+    offer_total_r = Counter(c['offer'] or '(no offer)' for c in rows)
+
+    # opened vs completed by month (Apr-Jul)
+    io = []
+    for i in range(3, 7):
+        opened = sum(1 for c in rows if month(c['op']) == i)
+        comp = sum(1 for c in rows if c['status'] == '100%' and month(c['cl'] if c['cl'] is not None else c['rs']) == i)
+        io.append((['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'][i], opened, comp))
+    io_max = max((max(o, d) for _, o, d in io), default=1) or 1
+    io_html = ''
+    for label, o, d in io:
+        io_html += (f'<div class="mcol"><div class="mpair">'
+                    f'<div class="mbarwrap"><div class="mval" style="color:#0B6FA4">{o}</div><div class="mbar" style="height:{round(140*o/io_max)}px;background:#0B6FA4"></div></div>'
+                    f'<div class="mbarwrap"><div class="mval" style="color:#2E7D5B">{d}</div><div class="mbar" style="height:{round(140*d/io_max)}px;background:#2E7D5B"></div></div>'
+                    f'</div><div class="mlabel">{label}</div></div>')
+    io_opened = sum(o for _, o, _ in io); io_done = sum(d for _, _, d in io)
+    io_net = io_opened - io_done
+    io_clear = round(100 * io_done / io_opened) if io_opened else 0
+    pile = onTrack_r + len(overdue_r)
+    overdue_share = round(100 * len(overdue_r) / pile) if pile else 0
+
+    # flow bubbles
+    recent_area = [(k, len(v)) for k, v in groupby_area(recent_r)]
+    ontrack_area = [(k, len(v)) for k, v in groupby_area(ontrack_r)]
+    overdue_area = [(k, len(v)) for k, v in groupby_area(overdue_r)]
+    completed_area = [(k, len(v)) for k, v in groupby_area(completed_r)]
+    FLOWV = [
+        ('received',  'Received',  'new · last 30 days',   len(recent_r),    '#0B6FA4', recent_area,    by_offer(recent_r),    False),
+        ('ontrack',   'On track',  'in progress, on time', onTrack_r,        '#3E9CD6', ontrack_area,   by_offer(ontrack_r),   True),
+        ('overdue',   'Overdue',   'past target date',     len(overdue_r),   '#C0453F', overdue_area,   by_offer(overdue_r),   True),
+        ('completed', 'Completed', 'reached 100%',         len(completed_r), '#2E7D5B', completed_area, by_offer(completed_r), True),
+    ]
+    cmax = max(d[3] for d in FLOWV) or 1
+    kk = 70.0 / math.sqrt(cmax)
+    radii = {d[0]: max(15, round(math.sqrt(d[3]) * kk)) for d in FLOWV}
+    maxR = max(radii.values())
+    flow_band = ''
+    for i, (key, label, sub, count, col, area, offer, showpct) in enumerate(FLOWV):
+        r = radii[key]; dia = 2 * r
+        fs = max(13, min(34, round(r * 0.85)))
+        on = ' on' if key == 'ontrack' else ''
+        pcttxt = f'{round(100 * count / flow_total)}% of all TA' if showpct else 'inflow · 30d'
+        flow_band += (f'<div class="flownode{on}" data-flow="{key}" onclick="showFlow(\'{key}\')">'
+                      f'<div class="flowcircwrap" style="height:{2*maxR}px;animation-delay:{i*0.1:.2f}s">'
+                      f'<div class="flowcirc" style="--c:{col};width:{dia}px;height:{dia}px">'
+                      f'<span class="flownum" data-val="{count}" style="color:{col};font-size:{fs}px">{count}</span></div></div>'
+                      f'<div class="flowlabel">{label}</div><div class="flowsub">{sub}</div>'
+                      f'<div class="flowpct" style="color:{col}">{pcttxt}</div></div>')
+        if i < len(FLOWV) - 1:
+            flow_band += f'<div class="flowarrow" style="height:{2*maxR}px">&rarr;</div>'
+    flow_bars = ''
+    for key, label, sub, count, col, area, offer, showpct in FLOWV:
+        disp = 'block' if key == 'ontrack' else 'none'
+        trk = _flow_track.get(col, "#E9F0F6")
+        flow_bars += (f'<div class="flowbarbox" data-flow="{key}" style="display:{disp}">'
+                      f'<div class="cardtitle">{label} — by thematic area</div>'
+                      f'{barlist(area, col, trk, label_w=300, right=True, pct=True, denom=area_total_r)}'
+                      f'<div class="divider"></div>'
+                      f'<div class="cardtitle">{label} — by programme offer</div>'
+                      f'{barlist(offer, col, trk, label_w=300, right=True, pct=True, denom=offer_total_r)}'
+                      f'<div class="barnote">% is the share of each thematic area’s (or programme offer’s) '
+                      f'own portfolio that is {label.lower()}.</div></div>')
+    onpct = round(100 * onTrack_r / flow_total)
+    ovpct = round(100 * len(overdue_r) / flow_total)
+    dopct = round(100 * len(completed_r) / flow_total)
+    flow_card = (
+        '<div class="card">'
+        f'<div class="cardtitle" style="margin-bottom:2px">Where the {len(rows)} nutrition TA requests stand today</div>'
+        f'<div style="font-size:12.5px;color:#5B7186;margin-bottom:8px">Each circle is sized by its share of the portfolio — '
+        f'<b style="color:#3E9CD6">{onpct}% on track</b>, <b style="color:#2E7D5B">{dopct}% completed</b>, and '
+        f'<b style="color:#C0453F">{ovpct}% overdue</b>. Click a circle to break that group down by thematic area.</div>'
+        f'<div class="flowband">{flow_band}</div>'
+        '<div class="flownote"><b>On track</b>, <b>Overdue</b> and <b>Completed</b> cover the whole portfolio. '
+        '<b>Received</b> is the 30-day inflow and already counted within the other three by their status.</div>'
+        '<div class="divider"></div>'
+        f'<div class="flowbars">{flow_bars}</div></div>')
+
+    # overdue severity
+    ob = [('1–30 days', sum(1 for c in overdue_r if TODAY - c['xc'] <= 30), '#E0A21E'),
+          ('31–60 days', sum(1 for c in overdue_r if 30 < TODAY - c['xc'] <= 60), '#CD6A2E'),
+          ('>60 days', sum(1 for c in overdue_r if TODAY - c['xc'] > 60), '#C0453F')]
+    ob_max = max((n for _, n, _ in ob), default=1) or 1
+    sev_legend = ''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l, n, c in ob)
+    sev_bar = ''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l, n, c in ob) \
+        or '<div style="width:100%;background:#EEF2F6"></div>'
+    sev_tags = ''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l, n, c in ob)
+
+    # detailed table (New / Overdue)
+    for c in recent_r: c['_m'] = str(round(TODAY - (c['cr'] or c['op'])))
+    for c in overdue_r: c['_m'] = '+' + str(round(TODAY - c['xc']))
+    table = detailed_table([('new', 'New requests', recent_r), ('overdue', 'Overdue requests', overdue_r)])
+    stalled_html = stalled_area_rows(stalled_r) or '<div class="muted">None in the current filter.</div>'
+
+    return f'''{panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
+      {flow_card}
+      <div class="divider" style="margin:26px 0 18px"></div>
+      <div class="panelhead" style="margin:0 0 14px">
+        <div class="pt">Inflow and bottlenecks</div>
+        <div class="ps">The bubbles above are today’s standing portfolio. This is the flow behind them — new requests keep arriving far faster than the team can close them, so the active pile grows and ages. The charts below show how fast it is building, and where the work gets stuck.</div>
+      </div>
+      <div class="thruput">
+        <div class="tp"><div class="tpn" style="color:#0B6FA4">{io_opened}</div><div class="tpl">opened since April</div></div>
+        <div class="tparr">&minus;</div>
+        <div class="tp"><div class="tpn" style="color:#2E7D5B">{io_done}</div><div class="tpl">completed to 100%</div></div>
+        <div class="tparr">=</div>
+        <div class="tp"><div class="tpn" style="color:#C0453F">+{io_net}</div><div class="tpl">net added to the active pile</div></div>
+        <div class="tp"><div class="tpn" style="color:#0F2238">{io_clear}%</div><div class="tpl">clearance rate — completed &divide; opened</div></div>
+        <div class="tp"><div class="tpn" style="color:#C0453F">{overdue_share}%</div><div class="tpl">of the active pile is already overdue</div></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
+          <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
+          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Opened</div><div class="lg"><span class="lgdot" style="background:#2E7D5B"></span>Completed</div></div>
+        </div>
+        <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
+        <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
+      </div>
+      <div class="card mt16">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
+          <div class="sevlegend">{sev_legend}</div></div>
+        <div class="sevbar">{sev_bar}</div>
+        <div class="sevtags">{sev_tags}</div>
+      </div>
+      <div class="card mt16">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
+          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
+        {stalled_html}
+        <div class="cardnote"><strong>What this says:</strong> these <b style="color:#B0453F">{len(stalled_r)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
+      </div>
+      {table}'''
+
+
+def render_flows(flowrows, suffix=''):
+    """Where support flows — the geographic arc map and the by-CoE-location breakdown."""
+    hub_total = Counter(hub_of(c) for c in flowrows)
+    ordered = sorted([n for n in HUB_META if hub_total.get(n, 0)], key=lambda n: -hub_total[n])
+    n_hubs = len(ordered)
+    n_countries = len({c['office'] for c in flowrows if c['office']})
+    LOC_ORDER = ordered + ['Blank']
+    loc_total = Counter(loc_key(c) for c in flowrows)
+    loc_leadcount = {L: len({c['lead'] for c in flowrows if loc_key(c) == L and c['lead']}) for L in LOC_ORDER}
+    loc_area = {L: defaultdict(lambda: defaultdict(Counter)) for L in LOC_ORDER}
+    lac = {L: defaultdict(set) for L in LOC_ORDER}
+    for c in flowrows:
+        L = loc_key(c)
+        loc_area[L][c['area']][c['lead'] or '(unassigned lead)'][c['status']] += 1
+        if c['office']:
+            lac[L][c['area']].add(c['office'])
+    station_tips = {}
+    for L in HUB_META:
+        hc = [c for c in flowrows if hub_of(c) == L]
+        if not hc:
+            continue
+        countries = len({c['office'] for c in hc if c['office']})
+        area_staff = defaultdict(set)
+        for c in hc:
+            if c['lead']:
+                area_staff[c['area']].add(c['lead'])
+        nstaff = len({c['lead'] for c in hc if c['lead']})
+        tiprows = ''.join(
+            f'<div><span>{esc("No lead" if a == "(unassigned lead)" else a)}</span><b>{len(s)} staff</b></div>'
+            for a, s in sorted(area_staff.items(), key=lambda kv: -len(kv[1])))
+        station_tips[L] = (
+            f'<div class="maptip-title"><span class="mtdot" style="background:{HUB_META[L][3]}"></span>{esc(L)}</div>'
+            f'<div class="maptip-sub">{len(hc)} requests · {countries} countries supported · {nstaff} staff</div>'
+            f'<div class="maptip-areas">{tiprows}</div>')
+    office_counts = Counter(c['office'] for c in flowrows if c['loc'] in HUB_META and c['office'])
+    office_totals = Counter(c['office'] for c in flowrows if c['office'])
+    links = Counter((c['loc'], c['office']) for c in flowrows if c['loc'] in HUB_META and c['office'])
+    stations = [{'name': n, 'key': slug(n), 'lon': lo, 'lat': la, 'anchor': an, 'color': co,
+                 'count': hub_total.get(n, 0), 'tip': station_tips.get(n, '')}
+                for n, (lo, la, an, co) in HUB_META.items() if hub_total.get(n, 0)]
+    # the shared #maptip lives at body top-level (see PAGE) so it is never inside
+    # a hidden filter wrapper; each map only emits its own tooltip templates.
+    flow_map = worldmap.build_world_map(stations, office_counts, links, office_totals,
+                                        suffix=suffix, floating_tip=False)
+    loc_tabs = ''
+    for L in LOC_ORDER:
+        on = ' on' if L == LOC_ORDER[0] else ''
+        loc_tabs += (f'<button class="loctab{on}" data-loc="{slug(L)}" onclick="showLoc(\'{slug(L)}\')">'
+                     f'<span class="ltdot" style="background:{LOC_COLOR[L]}"></span>{esc(L)} <b>{loc_total.get(L, 0)}</b></button>')
+    loc_panels = ''
+    for L in LOC_ORDER:
+        areas = sorted(loc_area[L].items(), key=lambda kv: -sum(sum(sc.values()) for sc in kv[1].values()))
+        n_areas = len([a for a, _ in areas if a != '(unassigned lead)'])
+        disp = 'block' if L == LOC_ORDER[0] else 'none'
+        nlead = loc_leadcount.get(L, 0)
+        summary = (f'{nlead} TA lead{"s" if nlead != 1 else ""} · {n_areas} thematic area'
+                   f'{"s" if n_areas != 1 else ""} · {loc_total.get(L, 0)} requests led')
+        loc_panels += (f'<div class="locpanel" data-loc="{slug(L)}" style="display:{disp}">'
+                       f'<div class="locsummary">{summary}</div>'
+                       f'{build_loc_bars(L, areas, lac)}</div>')
+    nairobi_total = hub_total.get('Nairobi', 0)
+    return f'''{panelhead('Where support flows', 'From each request’s TA-lead duty station (origin) to the supported country office (destination).')}
+      <div class="card">
+        <div class="flowintro"><b>{n_hubs}</b> duty stations delivering technical assistance to <b>{n_countries}</b> countries. Origin is each request’s TA-lead duty station, joined to the CND staff roster ({len(staff)} staff); destination is the country office being supported.</div>
+        {flow_map}
+        <div class="wmlegend">
+          <div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Duty station, sized by requests led</div>
+          <div class="lg"><span class="lgdot" style="background:#6C7B8C;border-radius:50%"></span>Supported country office</div>
+          <div class="lg"><span class="lgswatch"></span>Country named in the request export</div>
+        </div>
+        <div class="wmhint" data-idle="Tip: click a duty station to trace the countries it supports · hover for details.">Tip: click a duty station to trace the countries it supports · hover for details.</div>
+      </div>
+      <div class="card mt16">
+        <div class="cardtitle">By Centre-of-Excellence location — thematic areas &amp; staff assigned</div>
+        <div class="loctabs">{loc_tabs}</div>
+        <div class="lochdr">
+          <div class="clicknote">Click a thematic area to see the staff assigned</div>
+          <div class="statuslegend"><span class="sllabel">Each square = 1 request, by status</span>{legend()}</div>
+        </div>
+        {loc_panels}
+        <div class="cardnote"><strong>What this says:</strong> select a CoE location to see how its TA load splits across thematic areas and staff assigned. <b>Nairobi</b> leads half of all nutrition TA ({nairobi_total})</div>
+      </div>'''
+
+
+def render_work(rows):
+    """Workload — thematic-area status bars and per-lead spread."""
+    lead_map = defaultdict(list)
+    for c in rows:
+        if c['lead']:
+            lead_map[c['lead']].append(c)
+    lead_groups = sorted(lead_map.items(), key=lambda kv: -len(kv[1]))
+    head = panelhead('Workload: thematic areas & staff',
+                     'How requests distribute across thematic areas and individual TA leads.')
+    if not lead_groups:
+        return head + '<div class="card"><div class="muted">No assigned requests in this filter.</div></div>'
+    counts = [len(v) for _, v in lead_groups]
+    load_min, load_max, load_avg = min(counts), max(counts), sum(counts) / len(counts)
+    lmax = max(counts) or 1
+    lead_html = ''
+    for name, lrows in lead_groups:
+        lead_html += (f'<div class="leadrow"><div class="leadlabel"><div class="leadname">{esc(name)}</div>'
+                      f'<div class="leadarea">{esc(lrows[0]["area"])}</div></div>'
+                      f'{seg_bar(stacked_segs(lrows), 100*len(lrows)/lmax, 11)}<div class="ln">{len(lrows)}</div></div>')
+    return f'''{head}
+      <div class="card">
+        <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
+        <div class="legend">{legend()}</div>
+        <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
+        {area_status_rows(groupby_area(rows))}
+      </div>
+      <div class="card mt16">
+        <div class="cardtitle">Requests per TA lead — workload spread</div>
+        <div style="font-size:13px;color:#5B7186;margin-bottom:2px"><b style="color:#0B6FA4;font-size:15px">{len(lead_groups)}</b> TA leads assigned</div>
+        <div class="loadstat">
+          <div class="loadbox" style="background:#F6F8FA;border:1px solid #EDF1F4"><div class="loadlabel" style="color:#7A8C9C">Minimum</div><div class="loadval" style="color:#2E7D5B">{load_min}</div><div class="loadsub" style="color:#9AA7B2">lightest lead</div></div>
+          <div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Average</div><div class="loadval" style="color:#0B6FA4">{load_avg:.1f}</div><div class="loadsub" style="color:#7FA6BE">requests per lead</div></div>
+          <div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">Maximum</div><div class="loadval" style="color:#C0453F">{load_max}</div><div class="loadsub" style="color:#C79490">{esc(lead_groups[0][0])}</div></div>
+        </div>
+        <div style="position:relative;height:10px;border-radius:5px;margin:6px 4px 0;background:linear-gradient(90deg,#4CA576,#5BA3D0,#C0453F)"><div style="position:absolute;top:-5px;left:{pct(round(load_avg)-load_min, max(1,load_max-load_min))}%;transform:translateX(-50%);width:3px;height:20px;background:#0F2238;border-radius:2px"></div></div>
+        <div style="display:flex;justify-content:space-between;margin:9px 4px 0;font-size:11px;color:#7A8C9C"><span>Min {load_min}</span><span style="color:#0F2238;font-weight:700">Avg {load_avg:.1f}</span><span>Max {load_max}</span></div>
+        <div class="divider"></div>
+        <div class="cardtitle">Busiest TA lead staff — coloured by status</div>
+        <div class="legend">{legend()}</div>
+        <div class="leadgrid">{lead_html}</div>
+      </div>'''
+
+
+# Pre-render the three Management subtabs for each filter state (all / big / routine)
+_flow_big = [c for c in flowcases if c.get('type') == 'Big Ticket']
+_flow_rtn = [c for c in flowcases if c.get('type') != 'Big Ticket']
+mgmt_wrappers = ''
+for _v, _rows, _frows in [('all', PERF, flowcases), ('big', _big_rows, _flow_big), ('routine', _rtn_rows, _flow_rtn)]:
+    _disp = 'block' if _v == 'all' else 'none'
+    _inner = (
+        f'<div class="subpanel-perf" id="demand" style="display:block">{render_demand(_rows)}</div>'
+        f'<div class="subpanel-perf" id="flows" style="display:none">{render_flows(_frows, "-" + _v)}</div>'
+        f'<div class="subpanel-perf" id="work" style="display:none">{render_work(_rows)}</div>'
+    )
+    mgmt_wrappers += f'<div class="mgmtwrap" data-kpi="{_v}" style="display:{_disp}">{_inner}</div>'
 
 PAGE = f'''<!-- @dsCard group="Dashboards" -->
 <!doctype html>
@@ -960,6 +1255,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 </style></head>
 <body>
 <div class="wrap">
+<div id="maptip" class="maptip"></div>
 
   <header class="hd">
     <div>
@@ -987,97 +1283,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       <button class="subtab subtab-perf" data-sub="work" onclick="showSub('perf','work')">Workload</button>
     </div>
 
-    <!-- demand -->
-    <div class="subpanel-perf" id="demand" style="display:block">
-      {panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
-      {flow_card}
-      <div class="divider" style="margin:26px 0 18px"></div>
-      <div class="panelhead" style="margin:0 0 14px">
-        <div class="pt">Inflow and bottlenecks</div>
-        <div class="ps">The bubbles above are today’s standing portfolio. This is the flow behind them — new requests keep arriving far faster than the team can close them, so the active pile grows and ages. The charts below show how fast it is building, and where the work gets stuck.</div>
-      </div>
-      <div class="thruput">
-        <div class="tp"><div class="tpn" style="color:#0B6FA4">{io_opened}</div><div class="tpl">opened since April</div></div>
-        <div class="tparr">&minus;</div>
-        <div class="tp"><div class="tpn" style="color:#2E7D5B">{io_done}</div><div class="tpl">completed to 100%</div></div>
-        <div class="tparr">=</div>
-        <div class="tp"><div class="tpn" style="color:#C0453F">+{io_net}</div><div class="tpl">net added to the active pile</div></div>
-        <div class="tp"><div class="tpn" style="color:#0F2238">{io_clear}%</div><div class="tpl">clearance rate — completed &divide; opened</div></div>
-        <div class="tp"><div class="tpn" style="color:#C0453F">{overdue_share}%</div><div class="tpl">of the active pile is already overdue</div></div>
-      </div>
-      <div class="card">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
-          <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
-          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Opened</div><div class="lg"><span class="lgdot" style="background:#2E7D5B"></span>Completed</div></div>
-        </div>
-        <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
-        <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
-      </div>
-      <div class="card mt16">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
-          <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
-        <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
-        <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
-      </div>
-      <div class="card mt16">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
-          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
-        {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
-        <div class="cardnote"><strong>What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
-      </div>
-      {detailed_table([('new', 'New requests', newest), ('overdue', 'Overdue requests', overdue)])}
-    </div>
-
-    <!-- flows -->
-    <div class="subpanel-perf" id="flows" style="display:none">
-      {panelhead('Where support flows', 'From each request’s TA-lead duty station (origin) to the supported country office (destination).')}
-      <div class="card">
-        <div class="flowintro"><b>{n_hubs}</b> duty stations delivering technical assistance to <b>{n_countries}</b> countries. Origin is each request’s TA-lead duty station, joined to the CND staff roster ({len(staff)} staff); destination is the country office being supported.</div>
-        {flow_map}
-        <div class="wmlegend">
-          <div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Duty station, sized by requests led</div>
-          <div class="lg"><span class="lgdot" style="background:#6C7B8C;border-radius:50%"></span>Supported country office</div>
-          <div class="lg"><span class="lgswatch"></span>Country named in the request export</div>
-        </div>
-        <div id="wmhint" class="wmhint" data-idle="Tip: click a duty station to trace the countries it supports · hover for details.">Tip: click a duty station to trace the countries it supports · hover for details.</div>
-      </div>
-      <div class="card mt16">
-        <div class="cardtitle">By Centre-of-Excellence location — thematic areas &amp; staff assigned</div>
-        <div class="loctabs">{loc_tabs}</div>
-        <div class="lochdr">
-          <div class="clicknote">Click a thematic area to see the staff assigned</div>
-          <div class="statuslegend"><span class="sllabel">Each square = 1 request, by status</span>{legend()}</div>
-        </div>
-        {loc_panels}
-        <div class="cardnote"><strong>What this says:</strong> select a CoE location to see how its TA load splits across thematic areas and staff assigned. <b>Nairobi</b> leads half of all nutrition TA ({hub_total.get('Nairobi', 0)})</div>
-      </div>
-    </div>
-
-    <!-- workload -->
-    <div class="subpanel-perf" id="work" style="display:none">
-      {panelhead('Workload: thematic areas & staff', 'How requests distribute across thematic areas and individual TA leads.')}
-      <div class="card">
-        <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
-        <div class="legend">{legend()}</div>
-        <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
-        {area_status_rows(groupby_area(PERF))}
-      </div>
-      <div class="card mt16">
-        <div class="cardtitle">Requests per TA lead — workload spread</div>
-        <div style="font-size:13px;color:#5B7186;margin-bottom:2px"><b style="color:#0B6FA4;font-size:15px">{len(lead_groups)}</b> TA leads assigned</div>
-        <div class="loadstat">
-          <div class="loadbox" style="background:#F6F8FA;border:1px solid #EDF1F4"><div class="loadlabel" style="color:#7A8C9C">Minimum</div><div class="loadval" style="color:#2E7D5B">{load_min}</div><div class="loadsub" style="color:#9AA7B2">lightest lead</div></div>
-          <div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Average</div><div class="loadval" style="color:#0B6FA4">{load_avg:.1f}</div><div class="loadsub" style="color:#7FA6BE">requests per lead</div></div>
-          <div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">Maximum</div><div class="loadval" style="color:#C0453F">{load_max}</div><div class="loadsub" style="color:#C79490">{esc(lead_groups[0][0])}</div></div>
-        </div>
-        <div style="position:relative;height:10px;border-radius:5px;margin:6px 4px 0;background:linear-gradient(90deg,#4CA576,#5BA3D0,#C0453F)"><div style="position:absolute;top:-5px;left:{pct(round(load_avg)-load_min, max(1,load_max-load_min))}%;transform:translateX(-50%);width:3px;height:20px;background:#0F2238;border-radius:2px"></div></div>
-        <div style="display:flex;justify-content:space-between;margin:9px 4px 0;font-size:11px;color:#7A8C9C"><span>Min {load_min}</span><span style="color:#0F2238;font-weight:700">Avg {load_avg:.1f}</span><span>Max {load_max}</span></div>
-        <div class="divider"></div>
-        <div class="cardtitle">Busiest TA lead staff — coloured by status</div>
-        <div class="legend">{legend()}</div>
-        <div class="leadgrid">{lead_html}</div>
-      </div>
-    </div>
+    {mgmt_wrappers}
   </div>
 
   <!-- ============ DATA QUALITY REVIEW ============ -->
@@ -1155,7 +1361,7 @@ function showTop(id){{
   window.scrollTo(0,0);
 }}
 function showKpiFilter(m){{
-  var ws=document.querySelectorAll('.kpiwrap');
+  var ws=document.querySelectorAll('[data-kpi]');
   for(var i=0;i<ws.length;i++){{ ws[i].style.display = ws[i].getAttribute('data-kpi')===m ? 'block' : 'none'; }}
   var bs=document.querySelectorAll('.kpibtn');
   for(var j=0;j<bs.length;j++){{ if(bs[j].getAttribute('data-kf')===m){{ bs[j].classList.add('on'); }} else {{ bs[j].classList.remove('on'); }} }}
@@ -1225,9 +1431,11 @@ function applyHub(){{
   for(var k=0;k<bubs.length;k++){{ bubs[k].style.opacity=(selHub===null||bubs[k].getAttribute('data-hub')===selHub)?'':'0.28'; }}
   // drive the "By CoE location" graph below: selected hub, or Nairobi by default
   showLoc(selHub || 'nairobi');
-  var hint=document.getElementById('wmhint');
-  if(hint) hint.textContent = selHub===null ? hint.getAttribute('data-idle')
-    : 'Highlighting the countries this duty station supports — click it again, or the map, to reset.';
+  var hints=document.querySelectorAll('.wmhint');
+  for(var h=0;h<hints.length;h++){{
+    hints[h].textContent = selHub===null ? hints[h].getAttribute('data-idle')
+      : 'Highlighting the countries this duty station supports — click it again, or the map, to reset.';
+  }}
 }}
 (function(){{
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;

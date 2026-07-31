@@ -131,13 +131,17 @@ def resolve(office):
     return None
 
 
-def build_world_map(stations, office_counts, links, office_totals=None):
+def build_world_map(stations, office_counts, links, office_totals=None, suffix='', floating_tip=True):
     """
     stations: list of {name, lon, lat, count, color, anchor, key, tip}
     office_counts: {office_display_name: n}  (destination dots + highlight)
     links: {(station_name, office_display_name): weight}
     office_totals: {office: total requests received} for the dot tooltips
                    (falls back to office_counts when omitted)
+    suffix: appended to per-station tooltip element ids so several maps (e.g. one
+            per filter state) can coexist without id collisions.
+    floating_tip: emit the shared position:fixed #maptip element (only one is
+            needed on the page — pass False for extra copies of the map).
     """
     totals = office_totals or office_counts
     _load()
@@ -196,7 +200,7 @@ def build_world_map(stations, office_counts, links, office_totals=None):
         r = 6 + math.sqrt(s['count']) * 2.15
         col = s['color']
         key = s.get('key', '')
-        handlers = (f' style="cursor:pointer" onmouseenter="mapTip(evt,\'{key}\')" onmousemove="mapTipMove(evt)" '
+        handlers = (f' style="cursor:pointer" onmouseenter="mapTip(evt,\'{key}{suffix}\')" onmousemove="mapTipMove(evt)" '
                     f'onmouseleave="mapTipHide()" onclick="selectHub(evt,\'{key}\')"') if key else ''
         bubbles.append(f'<g class="wmbub" data-hub="{key}"{handlers}>'
                        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r+7:.1f}" fill="{col}" opacity="0.13"/>'
@@ -212,7 +216,7 @@ def build_world_map(stations, office_counts, links, office_totals=None):
         labels.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{ta}" class="wmlabel" '
                       f'style="pointer-events:none">{_esc(s["name"])} <tspan class="wmcount">{s["count"]}</tspan></text>')
         if key and s.get('tip'):
-            tips.append(f'<div id="tip-{key}" class="tiptpl" style="display:none">{s["tip"]}</div>')
+            tips.append(f'<div id="tip-{key}{suffix}" class="tiptpl" style="display:none">{s["tip"]}</div>')
 
     # Layer order (bottom -> top): map, arcs, visible dots, dot hover-targets,
     # interactive bubbles (topmost so a click on the disc always selects the
@@ -221,7 +225,7 @@ def build_world_map(stations, office_counts, links, office_totals=None):
            f'preserveAspectRatio="xMidYMid meet" onclick="clearHub()">'
            + ''.join(base) + ''.join(arcs) + ''.join(dots) + ''.join(dothits) + ''.join(bubbles) + ''.join(labels)
            + '</svg></div>')
-    return svg + ''.join(tips) + '<div id="maptip" class="maptip"></div>'
+    return svg + ''.join(tips) + ('<div id="maptip" class="maptip"></div>' if floating_tip else '')
 
 
 def _esc(x):
