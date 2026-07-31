@@ -306,7 +306,9 @@ for key, label, sub, count, col, area, offer, showpct in FLOW:
                   f'{barlist(area, col, trk, label_w=300, right=True, pct=True)}'
                   f'<div class="divider"></div>'
                   f'<div class="cardtitle">{label} — by programme offer</div>'
-                  f'{barlist(offer, col, trk, label_w=300, right=True, pct=True)}</div>')
+                  f'{barlist(offer, col, trk, label_w=300, right=True, pct=True)}'
+                  f'<div class="barnote">% is each category’s share of the {count} {label.lower()} '
+                  f'{"request" if count == 1 else "requests"}.</div></div>')
 
 _onpct = round(100 * onTrack / flow_total)
 _ovpct = round(100 * len(overdue) / flow_total)
@@ -702,6 +704,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .bllabel.right {{ font-size:13px; text-align:right; white-space:normal; overflow:visible; text-overflow:clip; line-height:1.3; }}
   .bln {{ text-align:right; font-weight:700; font-size:12.5px; font-variant-numeric:tabular-nums; }}
   .blpct {{ text-align:right; font-size:11.5px; color:#9AA7B2; font-weight:600; font-variant-numeric:tabular-nums; }}
+  .barnote {{ font-size:11.5px; color:#9AA7B2; margin-top:16px; border-top:1px solid #F1F4F7; padding-top:12px; }}
 
   .arearow {{ display:grid; align-items:center; gap:12px; margin-bottom:11px; }}
   .arealabel {{ font-size:12.5px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
