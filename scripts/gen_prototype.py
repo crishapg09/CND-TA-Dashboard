@@ -165,6 +165,65 @@ def req_table(title, rows, metric_label, days_color, footer='', cols=None):
             f'<div class="tscroll"><div class="tmin">'
             f'<div class="thead">{head}</div><div class="tbody">{body}</div></div></div>{foot}</div>')
 
+
+# --- "TA Requests · Detailed" table (country-profiles style) with a New/Overdue toggle ---
+def fmt_my(serial):
+    if serial is None:
+        return '—'
+    return (EPOCH + datetime.timedelta(days=serial)).strftime('%b %y')
+
+DET_STPCT = {'0%': 6, '25%': 25, '50%': 50, '75%': 75, '100%': 100, 'Unassigned': 4, 'Discontinued': 100}
+
+def _det_row(i, c):
+    title = c['desc'] or '—'
+    full = c['full'] if c.get('full') and c['full'] != c['desc'] else ''
+    chips = ''
+    if c['area'] and c['area'] != '(unassigned lead)':
+        chips += f'<span class="dchip area">{esc(c["area"])}</span>'
+    if c.get('modality'):
+        chips += f'<span class="dchip mod">{esc(c["modality"])}</span>'
+    reqfor = esc(c['reqFor']) if c['reqFor'] else '—'
+    assigned = (f'<span class="dval">{esc(c["lead"])}</span>' if c['lead']
+                else '<span class="dwarn">&#9888; unassigned</span>')
+    typ = c['type'] or '—'
+    typlabel = 'Big Ticket Item' if typ == 'Big Ticket' else typ
+    typcls = 'big' if typ == 'Big Ticket' else 'routine'
+    st = c['status']
+    stcol = SC.get(st, '#9AA7B2')
+    stlabel = st
+    stpct = DET_STPCT.get(st, 0)
+    return (
+        f'<div class="drow">'
+        f'<div class="dnum">{i:02d}</div>'
+        f'<div class="ddesc"><div class="dtitle">{esc(title)}</div>'
+        + (f'<div class="dfull">{esc(full)}</div>' if full else '')
+        + (f'<div class="dchips">{chips}</div>' if chips else '')
+        + '</div>'
+        f'<div class="dreq"><div class="dlabel">Requested for</div><div class="dval">{reqfor}</div>'
+        f'<div class="dlabel" style="margin-top:9px">Assigned to</div>{assigned}</div>'
+        f'<div class="dtype"><span class="dpill {typcls}">{esc(typlabel)}</span>'
+        f'<div class="ddate">{fmt_my(c["xs"])} &rarr; {fmt_my(c["xc"])}</div></div>'
+        f'<div class="dstatus"><span class="dstpill"><span class="dstdot" style="background:{stcol}"></span>{esc(stlabel)}</span>'
+        f'<div class="dstbar"><div style="width:{stpct}%;background:{stcol}"></div></div></div>'
+        f'</div>'
+    )
+
+def detailed_table(sets):
+    """sets = list of (key, toggle-label, rows). Country-profiles styling."""
+    tabs, boxes = '', ''
+    for j, (key, label, rows) in enumerate(sets):
+        tabs += (f'<button class="dtoggle{" on" if j == 0 else ""}" data-tbl="{key}" '
+                 f'onclick="showTbl(\'{key}\')">{label} <b>{len(rows)}</b></button>')
+        body = ''.join(_det_row(i + 1, c) for i, c in enumerate(rows))
+        boxes += (f'<div class="dtblbox" data-tbl="{key}" style="display:{"block" if j == 0 else "none"}">'
+                  f'<div class="dhead"><div>#</div><div>Description</div><div>Requested for</div>'
+                  f'<div>Type</div><div>Implementation status</div></div>'
+                  f'<div class="dbody">{body}</div></div>')
+    return (f'<div class="dtable"><div class="dtophead">'
+            f'<div class="dttitle">TA Requests <span>&middot; Detailed</span></div>'
+            f'<div class="dtoggles">{tabs}</div></div>'
+            f'<div class="dscroll">{boxes}</div></div>')
+
 # ======================================================================
 # PERFORMANCE
 # ======================================================================
@@ -613,6 +672,39 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .pill {{ font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:5px; }}
   .tfoot {{ padding:12px 22px 14px; font-size:11.5px; color:#8A98A6; line-height:1.55; border-top:1px solid #F1F4F7; }}
 
+  /* dense "TA Requests · Detailed" table (blue theme, New/Overdue toggle) */
+  .dtable {{ background:#fff; border:1px solid #E3E9EF; border-radius:10px; margin-top:16px; overflow:hidden; }}
+  .dtophead {{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:15px 22px 12px; border-bottom:1px solid #EDF1F4; }}
+  .dttitle {{ font-size:16px; font-weight:700; color:#0F2238; letter-spacing:-.01em; }}
+  .dttitle span {{ color:#9AA7B2; font-weight:400; }}
+  .dtoggles {{ display:flex; gap:6px; }}
+  .dtoggle {{ cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:700; padding:7px 13px; border-radius:8px; border:1px solid #D5DEE6; background:#fff; color:#5B7186; display:inline-flex; align-items:center; gap:6px; }}
+  .dtoggle b {{ color:#0F2238; font-variant-numeric:tabular-nums; }}
+  .dtoggle.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
+  .dtoggle.on b {{ color:#fff; }}
+  .dscroll {{ max-height:580px; overflow:auto; }}
+  .dhead, .drow {{ display:grid; grid-template-columns:40px minmax(230px,2.4fr) 1.3fr 1fr 1.05fr; gap:18px; min-width:900px; }}
+  .dhead {{ position:sticky; top:0; z-index:1; background:#F6F8FA; padding:10px 22px; font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:#7A8C9C; font-weight:700; border-bottom:1px solid #EDF1F4; }}
+  .drow {{ padding:14px 22px; border-bottom:1px solid #F1F4F7; align-items:start; }}
+  .dnum {{ font-size:12px; color:#9AA7B2; font-weight:600; font-variant-numeric:tabular-nums; padding-top:2px; }}
+  .dtitle {{ font-size:13.5px; font-weight:700; color:#0F2238; line-height:1.35; }}
+  .dfull {{ font-size:12px; color:#7A8794; margin-top:3px; line-height:1.45; }}
+  .dchips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }}
+  .dchip {{ font-size:11px; padding:3px 9px; border-radius:6px; white-space:nowrap; }}
+  .dchip.area {{ background:#EAF2F8; color:#0B5A8A; }}
+  .dchip.mod {{ background:#EEF2F6; color:#5B7186; }}
+  .dlabel {{ font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; color:#9AA7B2; font-weight:700; }}
+  .dval {{ font-size:13px; color:#43586B; margin-top:2px; }}
+  .dwarn {{ font-size:12.5px; color:#C0453F; font-weight:600; margin-top:2px; display:inline-block; }}
+  .dpill {{ display:inline-block; font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:6px; }}
+  .dpill.routine {{ background:#E4EEF6; color:#0B5A8A; }}
+  .dpill.big {{ background:#F5E6D6; color:#B0602C; }}
+  .ddate {{ font-size:12px; color:#8A98A6; margin-top:8px; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+  .dstpill {{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:700; color:#0F2238; background:#EEF2F6; padding:4px 11px; border-radius:999px; }}
+  .dstdot {{ width:8px; height:8px; border-radius:50%; }}
+  .dstbar {{ height:3px; background:#EAEEF2; border-radius:2px; margin-top:9px; max-width:150px; }}
+  .dstbar > div {{ height:100%; border-radius:2px; }}
+
   /* flow map */
   .wmwrap {{ overflow-x:auto; background:#F7FAFC; border-radius:10px; padding:4px; }}
   .wmsvg {{ width:100%; min-width:720px; height:auto; display:block; }}
@@ -734,15 +826,14 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     {perf_kpis}
 
     <div class="subtabs">
-      <button class="subtab subtab-perf on" data-sub="demand" onclick="showSub('perf','demand')">Demand &amp; delivery</button>
-      <button class="subtab subtab-perf" data-sub="over" onclick="showSub('perf','over')">Overdue requests</button>
+      <button class="subtab subtab-perf on" data-sub="demand" onclick="showSub('perf','demand')">Status of TA</button>
       <button class="subtab subtab-perf" data-sub="flows" onclick="showSub('perf','flows')">Where support flows</button>
       <button class="subtab subtab-perf" data-sub="work" onclick="showSub('perf','work')">Workload</button>
     </div>
 
     <!-- demand -->
     <div class="subpanel-perf" id="demand" style="display:block">
-      {panelhead('Demand, delivery & status', 'New requests coming in versus work completed and progressing.')}
+      {panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
       <div class="card">
         <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px">
           <div class="cardtitle" style="margin:0">Requests opened vs. completed, by month (2026)</div>
@@ -763,31 +854,25 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         {hero('#EAF4EE', '#CFE6D8', '#2E7D5B', len(completed_perf), '#2E7D5B', 'Completed', 'TA requests that have reached 100% implementation.', '#4A6B58')}
         <div class="card"><div class="cardtitle">Completed by thematic area</div>{barlist(completed_area, '#2E7D5B', '#E6F1EB', label_w=250)}</div>
       </div>
-      {req_table('Newest requests (last 30 days)', newest, 'Age (days)', '#0B6FA4')}
-    </div>
-
-    <!-- overdue -->
-    <div class="subpanel-perf" id="over" style="display:none">
-      {panelhead('Overdue requests', 'Active requests past their expected completion date but not yet at 100%.')}
-      <div class="grid3">
-        {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(overdue), '#C0453F', 'Should be closed by now', 'active requests past their expected completion date but not yet at 100%.', '#8A5450')}
-        <div class="minicard"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
-        <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(ob, label_w=92)}</div></div>
+      <div class="grid13 mt16">
+        {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date but not yet at 100%.', '#8A5450')}
+        <div class="card"><div class="cardtitle">Overdue by thematic area</div>{barlist(overdue_area, '#C0453F', '#F2EAE9', label_w=250)}</div>
       </div>
-      <div class="card mt16">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
-          <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
-        <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
-        <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
-        <div class="cardnote"><strong>What this says:</strong> most overdue requests are less than 30 days late. The <b style="color:#C0453F">&gt;60 days</b> group needs its expected completion dates reviewed — targets are no longer credible and need re-planning or closure.</div>
-      </div>
-      <div class="card mt16">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
-          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
-        {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
+      <div class="grid2 mt16">
+        <div class="card">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
+            <div class="sevlegend">{''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l,n,c in ob)}</div></div>
+          <div class="sevbar">{''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l,n,c in ob)}</div>
+          <div class="sevtags">{''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l,n,c in ob)}</div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
+            <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
+          {stalled_area_rows() or '<div class="muted">None in the current filter.</div>'}
+        </div>
       </div>
       <div class="banner" style="background:rgba(224,162,30,0.12);border:1px solid rgba(224,162,30,0.35);color:#7A5B10"><strong style="color:#5B7186">What this says:</strong> these <b style="color:#B0453F">{len(stalled)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
-      {req_table('Most overdue active requests', overdue[:14], 'Days over', '#C0453F', footer=OVERDUE_FOOTER)}
+      {detailed_table([('new', 'New requests', newest), ('overdue', 'Overdue requests', overdue)])}
     </div>
 
     <!-- flows -->
@@ -941,6 +1026,12 @@ function mapTipMove(e){{
   t.style.left=x+'px'; t.style.top=Math.max(8,y)+'px';
 }}
 function mapTipHide(){{ document.getElementById('maptip').style.display='none'; }}
+function showTbl(id){{
+  var bs=document.querySelectorAll('.dtblbox');
+  for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-tbl')===id ? 'block' : 'none'; }}
+  var ts=document.querySelectorAll('.dtoggle');
+  for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-tbl')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
+}}
 function dotTip(e,el){{
   var t=document.getElementById('maptip'); if(!t) return;
   var n=el.getAttribute('data-n');
