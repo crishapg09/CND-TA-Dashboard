@@ -282,7 +282,7 @@ for i, (key, label, sub, count, col, area, showpct) in enumerate(FLOW):
     pcttxt = f'{round(100 * count / flow_total)}% of all TA' if showpct else 'inflow · 30d'
     flow_band += (f'<div class="flownode{on}" data-flow="{key}" onclick="showFlow(\'{key}\')">'
                   f'<div class="flowcircwrap" style="height:{2 * _maxR}px">'
-                  f'<div class="flowcirc" style="width:{dia}px;height:{dia}px;border-color:{col};background:{col}1F">'
+                  f'<div class="flowcirc" style="--c:{col};width:{dia}px;height:{dia}px">'
                   f'<span class="flownum" style="color:{col};font-size:{fs}px">{count}</span></div></div>'
                   f'<div class="flowlabel">{label}</div><div class="flowsub">{sub}</div>'
                   f'<div class="flowpct" style="color:{col}">{pcttxt}</div></div>')
@@ -840,13 +840,15 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 
   /* flow-of-work bubbles */
   .flowband {{ display:flex; align-items:flex-start; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
-  .flownode {{ cursor:pointer; text-align:center; padding:8px 12px 10px; border-radius:12px; border:1px solid transparent; transition:background .15s, border-color .15s; }}
-  .flownode:hover {{ background:#F6F8FA; }}
-  .flownode.on {{ background:#EEF5FB; border-color:#D3E4F1; }}
+  .flownode {{ cursor:pointer; text-align:center; padding:10px 12px; border-radius:14px; transition:background .15s; }}
   .flowcircwrap {{ display:flex; align-items:center; justify-content:center; }}
-  .flowcirc {{ border-radius:50%; border:3px solid; display:flex; align-items:center; justify-content:center; transition:transform .15s; }}
-  .flownode:hover .flowcirc, .flownode.on .flowcirc {{ transform:scale(1.05); }}
-  .flownum {{ font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }}
+  .flowcirc {{ border-radius:50%; border:2px solid var(--c); display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 32% 26%, #ffffff 0%, color-mix(in srgb, var(--c) 9%, #fff) 56%, color-mix(in srgb, var(--c) 20%, #fff) 100%);
+    box-shadow:0 6px 16px color-mix(in srgb, var(--c) 30%, transparent), 0 1px 2px rgba(15,34,56,.07), inset 0 3px 7px rgba(255,255,255,.9);
+    transition:transform .2s ease, box-shadow .2s ease; }}
+  .flownode:hover .flowcirc {{ transform:translateY(-3px) scale(1.03); box-shadow:0 13px 26px color-mix(in srgb, var(--c) 40%, transparent), 0 2px 4px rgba(15,34,56,.1), inset 0 3px 7px rgba(255,255,255,.92); }}
+  .flownode.on .flowcirc {{ transform:translateY(-2px) scale(1.03); box-shadow:0 0 0 3px #fff, 0 0 0 5px color-mix(in srgb, var(--c) 60%, #fff), 0 12px 26px color-mix(in srgb, var(--c) 38%, transparent), inset 0 3px 7px rgba(255,255,255,.92); }}
+  .flownum {{ font-weight:800; font-variant-numeric:tabular-nums; line-height:1; letter-spacing:-.02em; }}
   .flowlabel {{ font-size:13.5px; font-weight:700; color:#0F2238; margin-top:12px; }}
   .flowsub {{ font-size:11px; color:#8A98A6; margin-top:1px; }}
   .flowpct {{ font-size:11.5px; font-weight:700; margin-top:4px; }}
