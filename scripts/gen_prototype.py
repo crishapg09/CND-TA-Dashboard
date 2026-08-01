@@ -286,59 +286,90 @@ _flow_track = {'#0B6FA4': '#E9F0F6', '#3E9CD6': '#E4EFF6', '#C0453F': '#F2EAE9',
 
 for c in cases: c['_m'] = ''   # default metric column; each table sets its own
 
-# stalled at 0% by thematic area (severity stacked)
-def stalled_area_rows(stalled):
-    g = groupby_area(stalled)
-    if not g: return ''
-    mx = max((len(v) for _, v in g), default=1) or 1
-    out = ''
-    for name, rows in g:
-        n31 = sum(1 for c in rows if TODAY - c['op'] <= 60)
-        n60 = sum(1 for c in rows if TODAY - c['op'] > 60)
-        segs = []
-        if n31: segs.append(('#CD6A2E', 100*n31/len(rows)))
-        if n60: segs.append(('#C0453F', 100*n60/len(rows)))
-        out += (f'<div class="arearow" style="grid-template-columns:210px 1fr 44px">'
-                f'<div class="arealabel">{esc(name)}</div>{seg_bar(segs, 100*len(rows)/mx, 11, "#F5EEDF")}'
-                f'<div class="an">{len(rows)}</div></div>')
-    return out
+_GEAR_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="#43586B" stroke-width="1.8" stroke-linecap="round" '
+             'stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06'
+             'a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09'
+             'A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82'
+             '1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06'
+             'a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09'
+             'a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V15z"/></svg>')
+_TRUCK_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="#43586B" stroke-width="1.8" stroke-linecap="round" '
+              'stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/>'
+              '<polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>'
+              '<circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>')
+_WARN_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="#C0453F" stroke-width="2" stroke-linecap="round" '
+             'stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86'
+             'a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>')
 
-def overdue_by_stage(rows):
-    """The Overdue-severity bar, but split by implementation stage instead of day
-    bands: a single stacked bar showing how many overdue requests stalled in setup
-    (0–25%) vs. in delivery (50–75%) — i.e. which ones to close/reassess vs. just
-    re-plan."""
+def overdue_stage_severity(rows):
+    """Combined overdue view: for each implementation stage group (Setup 0–25% vs
+    Delivery 50–75%) a segmented bar split by how far past the target date, with an
+    insight panel. Merges the old severity + by-stage bars into one."""
     if not rows:
         return ''
-    order = ['0%', '25%', '50%', '75%']
-    cnt = Counter(c['status'] for c in rows)
-    present = [s for s in order if cnt.get(s)]
+    BANDS = [('1–30 days', '#E3A21C'), ('31–60 days', '#E0701E'), ('>60 days', '#C63D2E')]
+    def band_of(c):
+        x = round(TODAY - c['xc'])
+        return 2 if x > 60 else (1 if x > 30 else 0)
     tot = len(rows)
-    setup = cnt.get('0%', 0) + cnt.get('25%', 0)
-    deliv = cnt.get('50%', 0) + cnt.get('75%', 0)
-    segs = ''
-    for s in present:
-        segs += f'<div style="width:{100*cnt[s]/tot:.1f}%;background:{SC[s]}" title="{s}: {cnt[s]}"></div>'
-        if s == '25%' and deliv:                     # thin gap marks setup | delivery
-            segs += '<div style="width:4px;background:#fff;flex:none"></div>'
-    legend = ''.join(f'<div class="lg"><span class="lgdot" style="background:{SC[s]}"></span>{s} &middot; <b>{cnt[s]}</b></div>'
-                     for s in present)
-    tags = (f'<span><b style="color:#0F2238">{setup}</b> in setup '
-            f'<span class="muted">(0&ndash;25% · {round(100*setup/tot)}%)</span></span>'
-            f'<span><b style="color:#0F2238">{deliv}</b> in delivery '
-            f'<span class="muted">(50&ndash;75% · {round(100*deliv/tot)}%)</span></span>')
+    counts = {}
+    for c in rows:
+        counts.setdefault(c['status'], [0, 0, 0])[band_of(c)] += 1
+    def group_cells(stages):
+        cc = [0, 0, 0]
+        for s in stages:
+            for b in range(3):
+                cc[b] += counts.get(s, [0, 0, 0])[b]
+        return cc, sum(cc)
+    col_tot = [sum(counts.get(s, [0, 0, 0])[b] for s in counts) for b in range(3)]
+    ZONES = [('In setup', _GEAR_SVG, ['0%', '25%']), ('In delivery', _TRUCK_SVG, ['50%', '75%'])]
+
+    body = ''
+    for zlabel, ico, stages in ZONES:
+        cc, ztot = group_cells(stages)
+        if not ztot:
+            continue
+        segs, braces = '', ''
+        for b, (lab, col) in enumerate(BANDS):
+            n = cc[b]
+            if not n:
+                continue
+            segs += (f'<div class="osb-seg" style="flex:{n};background:{col}">'
+                     f'<div class="osb-segn">{n}</div><div class="osb-segp">({round(100*n/tot)}%)</div></div>')
+            braces += (f'<div class="osb-brace" style="flex:{n}"><div class="osb-braceline" style="border-color:{col}"></div>'
+                       f'<div class="osb-bracelab" style="color:{col}">{lab}</div></div>')
+        body += (f'<div class="osb-row"><div class="osb-stage"><div class="osb-ico">{ico}</div>'
+                 f'<div><div class="osb-slabel">{zlabel}</div><div class="osb-snum">{ztot}</div>'
+                 f'<div class="osb-spct">({round(100*ztot/tot)}%)</div></div></div>'
+                 f'<div><div class="osb-bar">{segs}</div><div class="osb-braces">{braces}</div></div></div>')
+
+    setup_cc, setup_tot = group_cells(['0%', '25%'])
+    setup_pct = round(100 * setup_tot / tot)
+    over60 = col_tot[2]
+    pct60 = round(100 * over60 / tot)
+    lead_zone, lead_pct = ('setup', setup_pct) if setup_tot >= tot - setup_tot else ('delivery', 100 - setup_pct)
+    takeaway = ('Most overdue work is concentrated early in the process, before delivery even begins.'
+                if lead_zone == 'setup' else
+                'Most overdue work has reached delivery — largely a re-planning problem, not a stalled-setup one.')
+    legend = ''.join(f'<div class="lg"><span class="osb-sw" style="background:{col}"></span>{lab}</div>' for lab, col in BANDS)
+
     return (
         '<div class="card mt16">'
-        '<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px">'
-        '<div class="cardtitle" style="margin:0">Overdue by implementation stage</div>'
+        '<div class="osb-head"><div><div class="osb-title">Overdue requests: severity by implementation stage</div>'
+        f'<div class="osb-sub">{tot} total overdue requests</div></div>'
         f'<div class="sevlegend">{legend}</div></div>'
-        f'<div class="sevbar">{segs}</div>'
-        f'<div class="sevtags">{tags}</div>'
-        f'<div class="cardnote"><strong>What this says:</strong> <b style="color:#0F2238">{setup}</b> of the '
-        f'<b style="color:#C0453F">{tot}</b> overdue requests never got past <b>setup</b> (0&ndash;25%) — they went '
-        'overdue before delivery even began, so the call is usually to <b>close or reassess</b> them. The other '
-        f'<b style="color:#0F2238">{deliv}</b> are already <b>in delivery</b> (50&ndash;75%) — live work that mostly '
-        'just needs <b>re-planning</b> to a realistic date.</div>'
+        '<div class="osb-colhead"><div class="osb-ch">Implementation stage</div>'
+        '<div style="display:flex;justify-content:space-between;gap:12px"><span class="osb-ch">Overdue requests (and % of total)</span>'
+        '<span class="osb-ch">Breakdown by overdue severity</span></div></div>'
+        f'{body}'
+        '<div class="osb-insight"><div class="osb-inl">'
+        f'<div class="osb-warn">{_WARN_SVG}</div><div>'
+        f'<div class="osb-big"><b style="color:#0F2238">{setup_pct}%</b> of overdue requests are still in '
+        '<b style="color:#0B5A8A">setup</b>.</div>'
+        f'<div class="osb-small"><b style="color:#0F2238">{over60}</b> requests '
+        f'(<b style="color:#C0453F">{pct60}%</b>) are <b>&gt;60 days</b> overdue — <b>{setup_cc[2]}</b> of them still in setup, '
+        'where a request went past due before delivery began.</div></div></div>'
+        f'<div class="osb-inr"><div class="osb-kt">Key takeaway</div><div class="osb-ktb">{takeaway}</div></div></div>'
         '</div>')
 
 # ======================================================================
@@ -548,7 +579,6 @@ def render_demand(rows):
     recent_r = sorted([c for c in rows if (c['cr'] or c['op']) and (c['cr'] or c['op']) >= TODAY - 30],
                       key=lambda c: -((c['cr'] or c['op']) or 0))
     completed_r = [c for c in rows if c['status'] == '100%']
-    stalled_r = [c for c in active_r if c['status'] == '0%' and c['op'] is not None and TODAY - c['op'] > 30]
     flow_total = len(rows) or 1
     area_total_r = Counter(c['area'] for c in rows)
     offer_total_r = Counter(c['offer'] or '(no offer)' for c in rows)
@@ -628,21 +658,10 @@ def render_demand(rows):
         '<div class="divider"></div>'
         f'<div class="flowbars">{flow_bars}</div></div>')
 
-    # overdue severity
-    ob = [('1–30 days', sum(1 for c in overdue_r if TODAY - c['xc'] <= 30), '#E0A21E'),
-          ('31–60 days', sum(1 for c in overdue_r if 30 < TODAY - c['xc'] <= 60), '#CD6A2E'),
-          ('>60 days', sum(1 for c in overdue_r if TODAY - c['xc'] > 60), '#C0453F')]
-    ob_max = max((n for _, n, _ in ob), default=1) or 1
-    sev_legend = ''.join(f'<div class="lg"><span class="lgdot" style="background:{c}"></span>{l}</div>' for l, n, c in ob)
-    sev_bar = ''.join(f'<div style="width:{100*n/ob_max:.1f}%;background:{c}" title="{l}"></div>' for l, n, c in ob) \
-        or '<div style="width:100%;background:#EEF2F6"></div>'
-    sev_tags = ''.join(f'<span style="color:{c};font-weight:700">{n} · {l}</span>' for l, n, c in ob)
-
     # detailed table (New / Overdue)
     for c in recent_r: c['_m'] = str(round(TODAY - (c['cr'] or c['op'])))
     for c in overdue_r: c['_m'] = '+' + str(round(TODAY - c['xc']))
     table = detailed_table([('new', 'New requests', recent_r), ('overdue', 'Overdue requests', overdue_r)])
-    stalled_html = stalled_area_rows(stalled_r) or '<div class="muted">None in the current filter.</div>'
 
     return f'''{panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
       {flow_card}
@@ -668,19 +687,7 @@ def render_demand(rows):
         <div style="overflow-x:auto"><div class="mchart">{io_html}</div></div>
         <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
       </div>
-      <div class="card mt16">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity</div>
-          <div class="sevlegend">{sev_legend}</div></div>
-        <div class="sevbar">{sev_bar}</div>
-        <div class="sevtags">{sev_tags}</div>
-      </div>
-      {overdue_by_stage(overdue_r)}
-      <div class="card mt16">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
-          <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
-        {stalled_html}
-        <div class="cardnote"><strong>What this says:</strong> these <b style="color:#B0453F">{len(stalled_r)}</b> requests were assigned 30 or more days ago and have shown no progress at all.</div>
-      </div>
+      {overdue_stage_severity(overdue_r)}
       {table}'''
 
 
@@ -1072,6 +1079,44 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .sevlegend {{ display:flex; gap:16px; flex-wrap:wrap; }}
   .sevbar {{ display:flex; height:30px; border-radius:6px; overflow:hidden; border:1px solid #E3E9EF; }}
   .sevtags {{ display:flex; gap:24px; margin-top:10px; font-size:12.5px; flex-wrap:wrap; }}
+
+  /* overdue: severity by implementation stage */
+  .osb-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap; }}
+  .osb-title {{ font-size:15px; font-weight:800; letter-spacing:.02em; text-transform:uppercase; color:#0F2238; }}
+  .osb-sub {{ font-size:12.5px; color:#5B7186; font-weight:600; margin-top:3px; }}
+  .osb-sw {{ width:12px; height:12px; border-radius:3px; display:inline-block; }}
+  .osb-colhead {{ display:grid; grid-template-columns:230px 1fr; gap:16px; margin:20px 0 2px; }}
+  .osb-ch {{ font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:#9AA7B2; font-weight:700; }}
+  .osb-row {{ display:grid; grid-template-columns:230px 1fr; gap:16px; align-items:center; padding:16px 0; border-top:1px solid #EDF1F4; }}
+  .osb-stage {{ display:flex; align-items:center; gap:14px; }}
+  .osb-ico {{ width:52px; height:52px; border-radius:50%; background:#EAF0F5; display:flex; align-items:center; justify-content:center; flex:none; }}
+  .osb-ico svg {{ width:24px; height:24px; }}
+  .osb-slabel {{ font-size:13px; color:#5B7186; font-weight:700; }}
+  .osb-snum {{ font-size:30px; font-weight:800; color:#0F2238; line-height:1.05; font-variant-numeric:tabular-nums; }}
+  .osb-spct {{ font-size:12.5px; color:#9AA7B2; font-weight:700; }}
+  .osb-bar {{ display:flex; gap:4px; }}
+  .osb-seg {{ min-width:56px; border-radius:6px; padding:11px 8px; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; }}
+  .osb-segn {{ font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; text-shadow:0 1px 2px rgba(0,0,0,.18); }}
+  .osb-segp {{ font-size:11.5px; font-weight:600; opacity:.95; margin-top:3px; }}
+  .osb-braces {{ display:flex; gap:4px; margin-top:7px; }}
+  .osb-brace {{ min-width:56px; display:flex; flex-direction:column; align-items:center; }}
+  .osb-braceline {{ align-self:stretch; height:8px; border:1.5px solid; border-top:none; border-radius:0 0 5px 5px; opacity:.6; }}
+  .osb-bracelab {{ font-size:11.5px; font-weight:700; margin-top:5px; }}
+  .osb-insight {{ display:grid; grid-template-columns:1.45fr 1fr; background:#F4F6F8; border-radius:12px; padding:18px 20px; margin-top:20px; }}
+  .osb-inl {{ display:flex; gap:14px; padding-right:22px; }}
+  .osb-inr {{ padding-left:22px; border-left:1px solid #E3E9EF; }}
+  .osb-warn {{ width:44px; height:44px; border-radius:50%; background:#F7E3E1; display:flex; align-items:center; justify-content:center; flex:none; }}
+  .osb-warn svg {{ width:22px; height:22px; }}
+  .osb-big {{ font-size:15px; font-weight:700; color:#0F2238; line-height:1.4; }}
+  .osb-small {{ font-size:12.5px; color:#5B7186; margin-top:6px; line-height:1.5; }}
+  .osb-kt {{ font-size:13px; font-weight:700; color:#0B5A8A; margin-bottom:5px; }}
+  .osb-ktb {{ font-size:13px; color:#43586B; line-height:1.5; }}
+  @media (max-width:680px) {{
+    .osb-colhead, .osb-row {{ grid-template-columns:1fr; }}
+    .osb-insight {{ grid-template-columns:1fr; }}
+    .osb-inl {{ padding-right:0; }}
+    .osb-inr {{ padding-left:0; border-left:none; border-top:1px solid #E3E9EF; margin-top:14px; padding-top:14px; }}
+  }}
 
   .crow {{ display:grid; grid-template-columns:170px 1fr 44px; gap:12px; align-items:center; margin-bottom:10px; }}
   .clabel {{ font-size:12.5px; color:#43586B; font-weight:600; }}
