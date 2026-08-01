@@ -248,17 +248,21 @@ def perf_kpi_strip(rows, noun, is_all):
         ('Completed', str(comp), f'{pct(comp, n)}% of {noun} reached 100%', '#2E7D5B', '#2E7D5B'),
         ('Overdue', str(ovd), f'{pct(ovd, n)}% of {noun} &middot; past target date', '#C0453F', '#C0453F'),
     ]
-    tiles = ''.join(
-        f'<div class="kpi" style="border-top:3px solid {a}"><div class="kpilabel">{lab}</div>'
-        f'<div class="kpival" style="color:{col}">{v}</div><div class="kpisub">{s}</div></div>'
-        for lab, v, s, a, col in cards)
-    tiles += (
+
+    def _tile(lab, v, s, a, col):
+        return (f'<div class="kpi" style="border-top:3px solid {a}"><div class="kpilabel">{lab}</div>'
+                f'<div class="kpival" style="color:{col}">{v}</div><div class="kpisub">{s}</div></div>')
+
+    split_tile = (
         '<div class="kpi" style="border-top:3px solid #B0602C"><div class="kpilabel">Big ticket vs. routine</div>'
         '<div class="kpisplit">'
         f'<div><div class="kpival2" style="color:#B0602C">{n_big}</div><div class="kpisub">{pct(n_big, len(PERF))}% big ticket</div></div>'
         '<div class="kpisplitdiv"></div>'
         f'<div><div class="kpival2" style="color:#0B5A8A">{n_routine}</div><div class="kpisub">{pct(n_routine, len(PERF))}% routine</div></div>'
         '</div></div>')
+
+    # Total requests, then the Big-ticket/Routine split, then the rest
+    tiles = _tile(*cards[0]) + split_tile + ''.join(_tile(*c) for c in cards[1:])
     return f'<div class="kpistrip">{tiles}</div>'
 
 _big_rows = [c for c in PERF if c.get('type') == 'Big Ticket']
@@ -627,7 +631,7 @@ def render_demand(rows):
         <div class="cardnote"><strong>What this says:</strong> every month new demand (blue) outpaces completed work (green), so the active backlog grows. Since April, <b style="color:#0B6FA4">{io_opened}</b> requests were opened and <b style="color:#2E7D5B">{io_done}</b> reached 100%.</div>
       </div>
       <div class="card mt16">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity — how far past the target date</div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Overdue severity</div>
           <div class="sevlegend">{sev_legend}</div></div>
         <div class="sevbar">{sev_bar}</div>
         <div class="sevtags">{sev_tags}</div>
