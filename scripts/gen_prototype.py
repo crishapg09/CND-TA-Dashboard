@@ -303,6 +303,69 @@ def stalled_area_rows(stalled):
                 f'<div class="an">{len(rows)}</div></div>')
     return out
 
+def overdue_swarm(rows):
+    """One bubble per overdue request, positioned on the x-axis by how many days it
+    is past its target date and coloured by implementation status. Requests that
+    share a day are packed into a compact, capped-height column (widening when
+    tall) and sorted by stage so the colours read as bands — showing how far past
+    due the overdue load is and which stages it is stuck at."""
+    if not rows:
+        return ''
+    maxd = max(round(TODAY - c['xc']) for c in rows) or 1
+    W, ML, MR, MT = 1000, 44, 24, 16
+    plotW = W - ML - MR
+    r = 4.5
+    diam = 2 * r + 1.4
+    rows_max = 11                             # cap column height; widen past this
+    def xof(d): return ML + plotW * (d / maxd)
+    groups = defaultdict(list)                # exact day -> requests
+    for c in rows:
+        groups[round(TODAY - c['xc'])].append(c)
+    layout = []                               # (day, members, ncols, nrows)
+    maxrows = 1
+    for d, members in sorted(groups.items()):
+        members.sort(key=lambda c: STATUS_ORDER.index(c['status']))
+        ncols = max(1, math.ceil(len(members) / rows_max))
+        nrows = math.ceil(len(members) / ncols)
+        maxrows = max(maxrows, nrows)
+        layout.append((d, members, ncols, nrows))
+    axis_y = MT + maxrows * diam + 6
+    H = axis_y + 24
+    ticks = sorted(set(round(maxd * i / 5) for i in range(6)))
+    grid = ''.join(
+        f'<line x1="{xof(t):.1f}" y1="{MT}" x2="{xof(t):.1f}" y2="{axis_y:.1f}" stroke="#EDF1F4" stroke-width="1"/>'
+        f'<text x="{xof(t):.1f}" y="{axis_y+16:.0f}" text-anchor="middle" font-size="11" fill="#8A98A6">{t}d</text>'
+        for t in ticks)
+    axis = f'<line x1="{ML}" y1="{axis_y:.1f}" x2="{W-MR}" y2="{axis_y:.1f}" stroke="#DCE3EA" stroke-width="1"/>'
+    circles = ''
+    for d, members, ncols, nrows in layout:
+        x0 = xof(d)
+        for i, c in enumerate(members):       # column-major: statuses band vertically
+            col, row = divmod(i, nrows)
+            cxx = x0 + (col - (ncols - 1) / 2) * diam
+            cyy = axis_y - r - row * diam
+            circles += (f'<circle cx="{cxx:.1f}" cy="{cyy:.1f}" r="{r}" fill="{SC.get(c["status"], "#9AA7B2")}" '
+                        f'stroke="rgba(15,34,56,.18)" stroke-width="0.6">'
+                        f'<title>{esc(c["desc"] or c["id"])} · {c["status"]} · {d}d overdue</title></circle>')
+    svg = (f'<div style="overflow-x:auto"><svg viewBox="0 0 {W} {H:.0f}" '
+           f'style="width:100%;max-width:1000px;height:auto;display:block;margin:0 auto" preserveAspectRatio="xMidYMid meet">'
+           f'{grid}{axis}{circles}</svg></div>')
+    pts = [(round(TODAY - c['xc']), c) for c in rows]
+    cnt = Counter(c['status'] for _, c in pts)
+    leg = ''.join(f'<div class="lg"><span class="lgdot" style="background:{SC[s]}"></span>{s} &middot; <b>{cnt[s]}</b></div>'
+                  for s in STATUS_ORDER if cnt.get(s))
+    return (
+        '<div class="card mt16">'
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
+        '<div class="cardtitle" style="margin:0">Overdue requests by stage &amp; days overdue</div>'
+        f'<div class="sevlegend">{leg}</div></div>'
+        f'{svg}'
+        f'<div class="cardnote"><strong>What this says:</strong> each bubble is one of the '
+        f'<b style="color:#C0453F">{len(pts)}</b> overdue requests, placed by how far it is past its target date '
+        f'(1&ndash;{maxd} days) and coloured by implementation stage. Bubbles further right are the longest overdue; '
+        'the colour mix shows which stages the overdue work is stuck at.</div>'
+        '</div>')
+
 # ======================================================================
 # WHERE SUPPORT FLOWS — geographic map (origin duty station -> destination)
 # Universe: all non-discontinued requests (matches the map's "349").
@@ -636,6 +699,7 @@ def render_demand(rows):
         <div class="sevbar">{sev_bar}</div>
         <div class="sevtags">{sev_tags}</div>
       </div>
+      {overdue_swarm(overdue_r)}
       <div class="card mt16">
         <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px"><div class="cardtitle" style="margin:0">Stalled at 0% for 30+ days, by thematic area</div>
           <div class="sevlegend"><div class="lg"><span class="lgdot" style="background:#CD6A2E"></span>31–60 days</div><div class="lg"><span class="lgdot" style="background:#C0453F"></span>&gt;60 days</div></div></div>
