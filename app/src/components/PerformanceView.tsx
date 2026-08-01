@@ -223,7 +223,7 @@ export function PerformanceView({ d }: { d: Dashboard }) {
 
       {/* received last 30 days */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(230px, 100%), 1fr))', gap: 16, marginTop: 16, alignItems: 'start' }}>
-        <Hero bg="#EAF2F8" border="#CFE0EE" labelColor="#0B6FA4" value={d.recent} valueColor="#0B6FA4" label="Received in last 30 days" body="new TA requests opened between 29 Jun and 29 Jul 2026." bodyColor="#3E6178" />
+        <Hero bg="#EAF2F8" border="#CFE0EE" labelColor="#0B6FA4" value={d.recent} valueColor="#0B6FA4" label="Received in last 30 days" body="new TA requests opened between 1 Jul and 31 Jul 2026." bodyColor="#3E6178" />
         <div style={{ background: '#fff', border: '1px solid #E3E9EF', borderRadius: 10, padding: '20px 22px', height: 216, boxSizing: 'border-box' }}>
           <div style={cardTitle}>New by region</div>
           <BarList rows={d.recentByRegion} labelWidth={64} trackBg="#E9F0F6" />
@@ -325,7 +325,7 @@ export function PerformanceView({ d }: { d: Dashboard }) {
         rows={d.overdueTableFinal}
         metricLabel="Days over"
         daysColor="#C0453F"
-        footer="Days over = today (29 Jul 2026) − the request’s Expected Completion Date, counting only active requests (implementation status below 100%) whose target date has already passed."
+        footer="Days over = today (31 Jul 2026) − the request’s Expected Completion Date, counting only active requests (implementation status below 100%) whose target date has already passed."
       />
 
       </>
