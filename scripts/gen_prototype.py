@@ -341,7 +341,8 @@ def overdue_stage_severity(rows):
         body += (f'<div class="osb-row"><div class="osb-stage"><div class="osb-ico">{ico}</div>'
                  f'<div><div class="osb-slabel">{zlabel}</div><div class="osb-snum">{ztot}</div>'
                  f'<div class="osb-spct">({round(100*ztot/tot)}%)</div></div></div>'
-                 f'<div><div class="osb-bar">{segs}</div><div class="osb-braces">{braces}</div></div></div>')
+                 f'<div><div class="osb-track" style="width:{100*ztot/tot:.1f}%">'
+                 f'<div class="osb-bar">{segs}</div><div class="osb-braces">{braces}</div></div></div></div>')
 
     setup_cc, setup_tot = group_cells(['0%', '25%'])
     setup_pct = round(100 * setup_tot / tot)
@@ -1094,12 +1095,13 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .osb-slabel {{ font-size:13px; color:#5B7186; font-weight:700; }}
   .osb-snum {{ font-size:30px; font-weight:800; color:#0F2238; line-height:1.05; font-variant-numeric:tabular-nums; }}
   .osb-spct {{ font-size:12.5px; color:#9AA7B2; font-weight:700; }}
+  .osb-track {{ min-width:150px; }}   /* width set inline = group share of all overdue (funnel) */
   .osb-bar {{ display:flex; gap:4px; }}
-  .osb-seg {{ min-width:56px; border-radius:6px; padding:11px 8px; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; }}
+  .osb-seg {{ min-width:44px; border-radius:6px; padding:11px 8px; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; }}
   .osb-segn {{ font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; text-shadow:0 1px 2px rgba(0,0,0,.18); }}
   .osb-segp {{ font-size:11.5px; font-weight:600; opacity:.95; margin-top:3px; }}
   .osb-braces {{ display:flex; gap:4px; margin-top:7px; }}
-  .osb-brace {{ min-width:56px; display:flex; flex-direction:column; align-items:center; }}
+  .osb-brace {{ min-width:44px; display:flex; flex-direction:column; align-items:center; }}
   .osb-braceline {{ align-self:stretch; height:8px; border:1.5px solid; border-top:none; border-radius:0 0 5px 5px; opacity:.6; }}
   .osb-bracelab {{ font-size:11.5px; font-weight:700; margin-top:5px; }}
   .osb-insight {{ display:grid; grid-template-columns:1.45fr 1fr; background:#F4F6F8; border-radius:12px; padding:18px 20px; margin-top:20px; }}
