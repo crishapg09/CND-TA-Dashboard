@@ -177,7 +177,6 @@ DET_STPCT = {'0%': 6, '25%': 25, '50%': 50, '75%': 75, '100%': 100, 'Unassigned'
 
 def _det_row(i, c):
     title = c['desc'] or '—'
-    full = c['full'] if c.get('full') and c['full'] != c['desc'] else ''
     chips = ''
     if c['area'] and c['area'] != '(unassigned lead)':
         chips += f'<span class="dchip area">{esc(c["area"])}</span>'
@@ -196,8 +195,7 @@ def _det_row(i, c):
     return (
         f'<div class="drow">'
         f'<div class="dnum">{i:02d}</div>'
-        f'<div class="ddesc"><div class="dtitle">{esc(title)}</div>'
-        + (f'<div class="dfull">{esc(full)}</div>' if full else '')
+        f'<div class="ddesc"><div class="dtitle" title="{esc(c.get("full") or title)}">{esc(title)}</div>'
         + (f'<div class="dchips">{chips}</div>' if chips else '')
         + '</div>'
         f'<div class="dreq"><div class="dlabel">Requested for</div><div class="dval">{reqfor}</div>'
@@ -655,10 +653,11 @@ def render_demand(rows):
         '<div class="divider"></div>'
         f'<div class="flowbars">{flow_bars}</div></div>')
 
-    # detailed table (New / Overdue)
-    for c in recent_r: c['_m'] = str(round(TODAY - (c['cr'] or c['op'])))
-    for c in overdue_r: c['_m'] = '+' + str(round(TODAY - c['xc']))
-    table = detailed_table([('new', 'New requests', recent_r), ('overdue', 'Overdue requests', overdue_r)])
+    # detailed table (All / New / Overdue), All shown by default
+    all_rows = sorted(rows, key=lambda c: -((c['cr'] or c['op']) or 0))
+    table = detailed_table([('all', 'All requests', all_rows),
+                            ('new', 'New requests', recent_r),
+                            ('overdue', 'Overdue requests', overdue_r)])
 
     return f'''{panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
       {flow_card}
@@ -939,7 +938,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .dhead {{ position:sticky; top:0; z-index:1; background:#F6F8FA; padding:10px 22px; font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:#7A8C9C; font-weight:700; border-bottom:1px solid #EDF1F4; }}
   .drow {{ padding:14px 22px; border-bottom:1px solid #F1F4F7; align-items:start; }}
   .dnum {{ font-size:12px; color:#9AA7B2; font-weight:600; font-variant-numeric:tabular-nums; padding-top:2px; }}
-  .dtitle {{ font-size:13.5px; font-weight:700; color:#0F2238; line-height:1.35; }}
+  .dtitle {{ font-size:13.5px; font-weight:700; color:#0F2238; line-height:1.35; cursor:help; }}
   .dfull {{ font-size:12px; color:#7A8794; margin-top:3px; line-height:1.45; }}
   .dchips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }}
   .dchip {{ font-size:11px; padding:3px 9px; border-radius:6px; white-space:nowrap; }}
