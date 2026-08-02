@@ -653,11 +653,15 @@ def render_demand(rows):
         '<div class="divider"></div>'
         f'<div class="flowbars">{flow_bars}</div></div>')
 
-    # detailed table (All / New / Overdue), All shown by default
-    all_rows = sorted(rows, key=lambda c: -((c['cr'] or c['op']) or 0))
-    table = detailed_table([('all', 'All requests', all_rows),
+    # detailed table — All first, then the flow-bubble order (Received, On track,
+    # Overdue, Completed). All shown by default.
+    def _newest(rws):
+        return sorted(rws, key=lambda c: -((c['cr'] or c['op']) or 0))
+    table = detailed_table([('all', 'All requests', _newest(rows)),
                             ('new', 'New requests', recent_r),
-                            ('overdue', 'Overdue requests', overdue_r)])
+                            ('ontrack', 'Active and on track', _newest(ontrack_r)),
+                            ('overdue', 'Overdue requests', overdue_r),
+                            ('completed', 'Completed', _newest(completed_r))])
 
     return f'''{panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
       {flow_card}
