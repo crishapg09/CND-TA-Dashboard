@@ -195,8 +195,7 @@ def _det_row(i, c):
     return (
         f'<div class="drow">'
         f'<div class="dnum">{i:02d}</div>'
-        f'<div class="ddesc"><div class="dtitle" data-full="{esc(c.get("full") or title)}" '
-        f'onmouseenter="descTip(event,this)" onmousemove="mapTipMove(event)" onmouseleave="mapTipHide()">{esc(title)}</div>'
+        f'<div class="ddesc"><div class="dtitle">{esc(title)}</div>'
         + (f'<div class="dchips">{chips}</div>' if chips else '')
         + '</div>'
         f'<div class="dreq"><div class="dlabel">Requested for</div><div class="dval">{reqfor}</div>'
@@ -939,7 +938,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .dhead {{ position:sticky; top:0; z-index:1; background:#F6F8FA; padding:10px 22px; font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:#7A8C9C; font-weight:700; border-bottom:1px solid #EDF1F4; }}
   .drow {{ padding:14px 22px; border-bottom:1px solid #F1F4F7; align-items:start; }}
   .dnum {{ font-size:12px; color:#9AA7B2; font-weight:600; font-variant-numeric:tabular-nums; padding-top:2px; }}
-  .dtitle {{ font-size:13.5px; font-weight:700; color:#0F2238; line-height:1.35; cursor:help; }}
+  .dtitle {{ font-size:13.5px; font-weight:700; color:#0F2238; line-height:1.35; }}
   .dfull {{ font-size:12px; color:#7A8794; margin-top:3px; line-height:1.45; }}
   .dchips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }}
   .dchip {{ font-size:11px; padding:3px 9px; border-radius:6px; white-space:nowrap; }}
@@ -1259,11 +1258,6 @@ function mapTipMove(e){{
   t.style.left=x+'px'; t.style.top=Math.max(8,y)+'px';
 }}
 function mapTipHide(){{ document.getElementById('maptip').style.display='none'; }}
-function descTip(e,el){{
-  var t=document.getElementById('maptip'); if(!t) return;
-  t.innerHTML='<div style="max-width:360px;font-size:12px;line-height:1.55;white-space:normal">'+el.getAttribute('data-full')+'</div>';
-  t.style.display='block'; mapTipMove(e);
-}}
 function showTbl(id){{
   var bs=document.querySelectorAll('.dtblbox');
   for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-tbl')===id ? 'block' : 'none'; }}
