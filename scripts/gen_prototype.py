@@ -129,10 +129,13 @@ def legend():
 
 def kpi_strip(tiles):
     out = ''
-    for label, val, sub, accent, color in tiles:
+    for t in tiles:
+        label, val, sub, accent, color = t[:5]
+        foot = t[5] if len(t) > 5 else ''
+        footer = f'<div class="kpifoot">{foot}</div>' if foot else ''
         out += (f'<div class="kpi" style="border-top:3px solid {accent}">'
                 f'<div class="kpilabel">{label}</div><div class="kpival" style="color:{color}">{val}</div>'
-                f'<div class="kpisub">{sub}</div></div>')
+                f'<div class="kpisub">{sub}</div>{footer}</div>')
     return f'<div class="kpistrip">{out}</div>'
 
 def hero(bg, border, labelc, value, valuec, label, body, bodyc):
@@ -525,13 +528,17 @@ dq_overdue_area = [(k, len(v)) for k, v in groupby_area(dq_overdue)]
 not_closed = [c for c in co if c['status'] in ('100%', 'Discontinued') and not c['cl']]
 for c in not_closed: c['_m'] = 'completed' if c['status'] == '100%' else 'discontinued'
 
+dq_total = sum(1 for c in co if c['status'] != 'Discontinued')   # kept CO requests
+_awaiting = sum(1 for c in setupSet if c['status'] == 'Unassigned')
+_insetup = sum(1 for c in setupSet if c['status'] != 'Unassigned')
+def _dqfoot(v): return f'{pct(v, dq_total)}% of all requests'
 dq_kpis = kpi_strip([
-    ('Awaiting assignment', str(sum(1 for c in setupSet if c['status'] == 'Unassigned')), 'unassigned CO requests', '#E0A21E', '#0F2238'),
-    ('In setup (0–25%)', str(sum(1 for c in setupSet if c['status'] != 'Unassigned')), 'being scoped with the CO', '#5BA3D0', '#0F2238'),
-    ('Stalled in setup', str(len(stalledSetup)), 'stuck past the threshold', '#C0453F', '#C0453F'),
-    ('In delivery (50%+)', str(len(started)), 'work has started', '#0B6FA4', '#0F2238'),
-    ('Needing cleanup', str(len(flagRecords)), '50%+ with a data flag', '#C0453F', '#C0453F'),
-    ('Overdue', str(len(dq_overdue)), 'active past target date', '#C0453F', '#C0453F'),
+    ('Awaiting assignment', str(_awaiting), 'unassigned CO requests', '#E0A21E', '#0F2238', _dqfoot(_awaiting)),
+    ('In setup (0–25%)', str(_insetup), 'being scoped with the CO', '#5BA3D0', '#0F2238', _dqfoot(_insetup)),
+    ('Stalled in setup', str(len(stalledSetup)), 'no progress for 30+ days (14+ if unassigned)', '#CD6A2E', '#CD6A2E', _dqfoot(len(stalledSetup))),
+    ('In delivery (50%+)', str(len(started)), 'work has started', '#2C7DB5', '#0F2238', _dqfoot(len(started))),
+    ('Needing cleanup', str(len(flagRecords)), '50%+ with a data flag', '#C0453F', '#C0453F', _dqfoot(len(flagRecords))),
+    ('Overdue', str(len(dq_overdue)), 'active past target date', '#C0453F', '#C0453F', _dqfoot(len(dq_overdue))),
 ])
 
 def completeness_rows():
@@ -858,6 +865,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .kpilabel {{ font-size:12px; color:#5B7186; font-weight:600; }}
   .kpival {{ font-size:32px; font-weight:700; letter-spacing:-.02em; line-height:1.1; margin:6px 0 4px; font-variant-numeric:tabular-nums; }}
   .kpisub {{ font-size:11.5px; color:#9AA7B2; }}
+  .kpifoot {{ font-size:11px; color:#9AA7B2; font-weight:700; margin-top:8px; padding-top:8px; border-top:1px solid #F1F4F7; }}
   .kpifilter {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px; }}
   .kpifl {{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#8A98A6; font-weight:700; margin-right:2px; }}
   .kpibtn {{ cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:700; padding:7px 14px; border-radius:8px; border:1px solid #D5DEE6; background:#fff; color:#5B7186; display:inline-flex; align-items:center; gap:7px; }}
@@ -1176,7 +1184,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
         <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
       </div>
       <div class="grid3 mt16">
-        <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
+        <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#CD6A2E', '#F6E9DE', label_w=150)}</div>
         <div class="card"><div class="cardtitle">Unassigned, by thematic area</div>{barlist(unassigned_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
         <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
       </div>
