@@ -195,7 +195,8 @@ def _det_row(i, c):
     return (
         f'<div class="drow">'
         f'<div class="dnum">{i:02d}</div>'
-        f'<div class="ddesc"><div class="dtitle" title="{esc(c.get("full") or title)}">{esc(title)}</div>'
+        f'<div class="ddesc"><div class="dtitle" data-full="{esc(c.get("full") or title)}" '
+        f'onmouseenter="descTip(event,this)" onmousemove="mapTipMove(event)" onmouseleave="mapTipHide()">{esc(title)}</div>'
         + (f'<div class="dchips">{chips}</div>' if chips else '')
         + '</div>'
         f'<div class="dreq"><div class="dlabel">Requested for</div><div class="dval">{reqfor}</div>'
@@ -1258,6 +1259,11 @@ function mapTipMove(e){{
   t.style.left=x+'px'; t.style.top=Math.max(8,y)+'px';
 }}
 function mapTipHide(){{ document.getElementById('maptip').style.display='none'; }}
+function descTip(e,el){{
+  var t=document.getElementById('maptip'); if(!t) return;
+  t.innerHTML='<div style="max-width:360px;font-size:12px;line-height:1.55;white-space:normal">'+el.getAttribute('data-full')+'</div>';
+  t.style.display='block'; mapTipMove(e);
+}}
 function showTbl(id){{
   var bs=document.querySelectorAll('.dtblbox');
   for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-tbl')===id ? 'block' : 'none'; }}
