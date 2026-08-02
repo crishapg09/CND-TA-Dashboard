@@ -195,8 +195,11 @@ def _det_row(i, c):
     stcol = SC.get(st, '#9AA7B2')
     stlabel = st
     stpct = DET_STPCT.get(st, 0)
+    d_desc = esc((title if title != '—' else '').lower())
+    d_req = esc((c['reqFor'] or '').lower())
     return (
-        f'<div class="drow">'
+        f'<div class="drow" data-idx="{i}" data-desc="{d_desc}" '
+        f'data-req="{d_req}" data-type="{esc(typlabel)}" data-status="{stpct}">'
         f'<div class="dnum">{i:02d}</div>'
         f'<div class="ddesc"><div class="dtitle">{esc(title)}</div>'
         + (f'<div class="dchips">{chips}</div>' if chips else '')
@@ -218,8 +221,13 @@ def detailed_table(sets):
                  f'onclick="showTbl(\'{key}\')">{label} <b>{len(rows)}</b></button>')
         body = ''.join(_det_row(i + 1, c) for i, c in enumerate(rows))
         boxes += (f'<div class="dtblbox" data-tbl="{key}" style="display:{"block" if j == 0 else "none"}">'
-                  f'<div class="dhead"><div>#</div><div>Description</div><div>Requested for</div>'
-                  f'<div>Type</div><div>Implementation status</div></div>'
+                  f'<div class="dhead">'
+                  f'<div class="dsort" data-col="idx" data-num="1" onclick="sortDet(this)">#</div>'
+                  f'<div class="dsort" data-col="desc" onclick="sortDet(this)">Description</div>'
+                  f'<div class="dsort" data-col="req" onclick="sortDet(this)">Requested for</div>'
+                  f'<div class="dsort" data-col="type" onclick="sortDet(this)">Type</div>'
+                  f'<div class="dsort" data-col="status" data-num="1" onclick="sortDet(this)">Implementation status</div>'
+                  f'</div>'
                   f'<div class="dbody">{body}</div></div>')
     return (f'<div class="dtable"><div class="dtophead">'
             f'<div class="dttitle">TA Requests <span>&middot; Detailed</span></div>'
@@ -948,6 +956,12 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .dscroll {{ max-height:580px; overflow:auto; }}
   .dhead, .drow {{ display:grid; grid-template-columns:40px minmax(230px,2.4fr) 1.3fr 1fr 1.05fr; gap:18px; min-width:900px; }}
   .dhead {{ position:sticky; top:0; z-index:1; background:#F6F8FA; padding:10px 22px; font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:#7A8C9C; font-weight:700; border-bottom:1px solid #EDF1F4; }}
+  .dhead .dsort {{ cursor:pointer; user-select:none; display:inline-flex; align-items:center; gap:5px; transition:color .12s; }}
+  .dhead .dsort:hover {{ color:#0B5A8A; }}
+  .dhead .dsort::after {{ content:'↕'; font-size:9px; opacity:.32; }}
+  .dhead .dsort.asc::after {{ content:'▲'; font-size:8px; opacity:1; color:#0B5A8A; }}
+  .dhead .dsort.desc::after {{ content:'▼'; font-size:8px; opacity:1; color:#0B5A8A; }}
+  .dhead .dsort.asc, .dhead .dsort.desc {{ color:#0B5A8A; }}
   .drow {{ padding:14px 22px; border-bottom:1px solid #F1F4F7; align-items:start; }}
   .dnum {{ font-size:12px; color:#9AA7B2; font-weight:600; font-variant-numeric:tabular-nums; padding-top:2px; }}
   .dtitle {{ font-size:13.5px; font-weight:700; color:#0F2238; line-height:1.35; }}
@@ -1275,6 +1289,30 @@ function showTbl(id){{
   for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-tbl')===id ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.dtoggle');
   for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-tbl')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
+}}
+function sortDet(el){{
+  var col=el.getAttribute('data-col'), num=el.getAttribute('data-num')==='1';
+  var box=el.closest('.dtblbox'), body=box.querySelector('.dbody');
+  var dir=(box.getAttribute('data-sortcol')===col && box.getAttribute('data-sortdir')==='asc')?'desc':'asc';
+  box.setAttribute('data-sortcol',col); box.setAttribute('data-sortdir',dir);
+  var rows=Array.prototype.slice.call(body.querySelectorAll('.drow'));
+  rows.sort(function(a,b){{
+    var va=a.getAttribute('data-'+col)||'', vb=b.getAttribute('data-'+col)||'';
+    var r;
+    if(num){{ r=(parseFloat(va)||0)-(parseFloat(vb)||0); }}
+    else if(va===vb){{ r=0; }}
+    else if(va===''){{ r=1; }} else if(vb===''){{ r=-1; }}
+    else {{ r=va<vb?-1:1; }}
+    if(r===0){{ r=(parseInt(a.getAttribute('data-idx'),10))-(parseInt(b.getAttribute('data-idx'),10)); return r; }}
+    return dir==='asc'?r:-r;
+  }});
+  for(var i=0;i<rows.length;i++){{
+    body.appendChild(rows[i]);
+    rows[i].querySelector('.dnum').textContent=('0'+(i+1)).slice(-2);
+  }}
+  var hs=box.querySelectorAll('.dhead .dsort');
+  for(var k=0;k<hs.length;k++){{ hs[k].classList.remove('asc','desc'); }}
+  el.classList.add(dir);
 }}
 function showFlow(key){{
   var bs=document.querySelectorAll('.flowbarbox');
