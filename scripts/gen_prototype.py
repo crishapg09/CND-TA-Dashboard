@@ -597,12 +597,12 @@ def render_demand(rows):
     area_total_r = Counter(c['area'] for c in rows)
     offer_total_r = Counter(c['offer'] or '(no offer)' for c in rows)
 
-    # opened vs completed by month (Apr-Jul)
+    # opened vs completed by month (Apr-Aug)
     io = []
-    for i in range(3, 7):
+    for i in range(3, 8):
         opened = sum(1 for c in rows if month(c['op']) == i)
         comp = sum(1 for c in rows if c['status'] == '100%' and month(c['cl'] if c['cl'] is not None else c['rs']) == i)
-        io.append((['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'][i], opened, comp))
+        io.append((['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'][i], opened, comp))
     io_max = max((max(o, d) for _, o, d in io), default=1) or 1
     io_html = ''
     for label, o, d in io:
@@ -836,6 +836,72 @@ for _v, _rows, _frows in [('all', PERF, flowcases), ('big', _big_rows, _flow_big
         f'<div class="subpanel-perf" id="work" style="display:none">{render_work(_rows)}</div>'
     )
     mgmt_wrappers += f'<div class="mgmtwrap" data-kpi="{_v}" style="display:{_disp}">{_inner}</div>'
+
+
+# ======================================================================
+# Country profile subtab — per-country TA summary + single-select filter
+# ======================================================================
+_ctry_groups = defaultdict(list)
+for c in PERF:
+    _ctry_groups[c['office']].append(c)
+
+def _ctop(counter):
+    return sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+
+COUNTRY_DATA = {}
+for _office, rr in _ctry_groups.items():
+    n = len(rr)
+    big = sum(1 for c in rr if c['type'] == 'Big Ticket')
+    completed = sum(1 for c in rr if c['status'] == '100%')
+    unassigned = sum(1 for c in rr if c['status'] == 'Unassigned')
+    _act = [c for c in rr if c['status'] not in ('100%', 'Unassigned')]
+    _od = [c for c in _act if c['xc'] is not None and c['xc'] < TODAY]
+    recent_n = sum(1 for c in rr if (c['cr'] or c['op']) and (c['cr'] or c['op']) >= TODAY - 30)
+    segs = [[SC[s], round(100 * sum(1 for c in rr if c['status'] == s) / n, 2)]
+            for s in STATUS_ORDER if any(c['status'] == s for c in rr)]
+    counts = [[s, sum(1 for c in rr if c['status'] == s), SC[s]] for s in STATUS_ORDER
+              if any(c['status'] == s for c in rr)]
+    reqs = []
+    for c in sorted(rr, key=lambda c: (c['status'] == '100%', -(c['xc'] or 0))):
+        cbg, cfg = chip(c['status'])
+        od = c['status'] not in ('100%', 'Unassigned') and c['xc'] is not None and c['xc'] < TODAY
+        reqs.append({
+            'id': c['id'], 'desc': c['desc'] or (c['full'] or '')[:120],
+            'status': c['status'], 'sbg': cbg, 'sfg': cfg,
+            'type': c['type'], 'offer': c['offer'] or '(no offer)',
+            'area': c['area'], 'lead': c['lead'] or '—',
+            'xc': fmtdate(c['xc']), 'overdue': od,
+        })
+    COUNTRY_DATA[_office] = {
+        'region': rr[0]['region'], 'n': n, 'big': big, 'routine': n - big,
+        'completed': completed, 'unassigned': unassigned,
+        'overdue': len(_od), 'onTrack': len(_act) - len(_od), 'recent': recent_n,
+        'segs': segs, 'counts': counts,
+        'offers': _ctop(Counter(c['offer'] or '(no offer)' for c in rr)),
+        'areas': _ctop(Counter(c['area'] for c in rr)),
+        'modality': _ctop(Counter(c['modality'] or '(unspecified)' for c in rr)),
+        'leads': _ctop(Counter(c['lead'] for c in rr if c['lead'])),
+        'reqs': reqs,
+    }
+
+_default_country = max(COUNTRY_DATA.items(), key=lambda kv: kv[1]['n'])[0]  # busiest office
+country_options = ''.join(
+    f'<option value="{esc(nm)}"{" selected" if nm == _default_country else ""}>'
+    f'{esc(nm)} · {COUNTRY_DATA[nm]["n"]}</option>'
+    for nm in sorted(COUNTRY_DATA))
+COUNTRY_JSON = json.dumps(COUNTRY_DATA, ensure_ascii=False)
+
+country_panel = (
+    panelhead('Country profile',
+              'The technical-assistance portfolio for one country office — pick a country to see its '
+              'requests, implementation status, thematic areas, delivery modality and TA leads.')
+    + '<div class="ctrybar">'
+      '<label class="ctrylbl" for="ctrySel">Country office</label>'
+      f'<select id="ctrySel" class="ctrysel" onchange="renderCountry(this.value)">{country_options}</select>'
+      '<span class="ctrymeta" id="ctryMeta"></span>'
+      '</div>'
+      '<div id="ctryBody"></div>'
+)
 
 PAGE = f'''<!-- @dsCard group="Dashboards" -->
 <!doctype html>
@@ -1145,6 +1211,28 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .tcard {{ background:#F6F8FA; border:1px solid #EDF1F4; border-radius:9px; padding:14px 16px; }}
   .tcardlabel {{ font-size:13px; font-weight:700; color:#0F2238; }}
   .tcardsub {{ font-size:11.5px; color:#8A98A6; margin-top:3px; }}
+
+  /* country profile */
+  .ctrybar {{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:16px 0 20px; }}
+  .ctrylbl {{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#8A98A6; font-weight:700; }}
+  .ctrysel {{ font-family:inherit; font-size:14px; font-weight:700; color:#0F2238; padding:10px 16px; border-radius:9px; border:1px solid #C7D4DE; background:#fff; min-width:300px; cursor:pointer; }}
+  .ctrysel:focus {{ outline:none; border-color:#0B6FA4; box-shadow:0 0 0 3px rgba(11,111,164,.12); }}
+  .ctrymeta {{ font-size:13px; color:#5B7186; }} .ctrymeta b {{ color:#0F2238; }}
+  .cbadge {{ display:inline-block; font-size:11px; font-weight:700; padding:3px 10px; border-radius:6px; background:#EAF2F8; color:#0B5A8A; }}
+  .creq {{ display:grid; grid-template-columns:92px 1fr 128px 148px; gap:16px; align-items:start; padding:13px 0; border-top:1px solid #F1F4F7; }}
+  .creq:last-child {{ border-bottom:1px solid #F1F4F7; }}
+  .creqid {{ font-size:12.5px; font-weight:700; color:#0B5A8A; font-variant-numeric:tabular-nums; }}
+  .creqtitle {{ font-size:13px; font-weight:700; color:#0F2238; line-height:1.35; }}
+  .creqchips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }}
+  .creqchip {{ font-size:10.5px; padding:2px 8px; border-radius:5px; background:#EEF2F6; color:#5B7186; white-space:nowrap; }}
+  .creqchip.area {{ background:#EAF2F8; color:#0B5A8A; }}
+  .creqchip.big {{ background:#F5E6D6; color:#B0602C; }}
+  .creqpill {{ display:inline-block; font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:6px; }}
+  .creqdate {{ font-size:12px; color:#8A98A6; margin-top:6px; font-variant-numeric:tabular-nums; }}
+  .creqdate.od {{ color:#C0453F; font-weight:700; }}
+  .creqlead {{ font-size:12.5px; color:#43586B; }} .creqlead .l {{ font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; color:#9AA7B2; font-weight:700; display:block; margin-bottom:2px; }}
+  .creqscroll {{ max-height:560px; overflow-y:auto; padding-right:6px; }}
+  @media (max-width:680px) {{ .creq {{ grid-template-columns:1fr; gap:6px; }} }}
 </style></head>
 <body>
 <div class="wrap">
@@ -1168,15 +1256,17 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 
   <!-- ============ PERFORMANCE ============ -->
   <div class="toppanel" id="perf" style="display:block">
-    {perf_kpis}
+    <div id="perfKpis">{perf_kpis}</div>
 
     <div class="subtabs">
       <button class="subtab subtab-perf on" data-sub="demand" onclick="showSub('perf','demand')">Status of TA</button>
       <button class="subtab subtab-perf" data-sub="flows" onclick="showSub('perf','flows')">Where support flows</button>
       <button class="subtab subtab-perf" data-sub="work" onclick="showSub('perf','work')">Workload</button>
+      <button class="subtab subtab-perf" data-sub="country" onclick="showSub('perf','country')">Country profile</button>
     </div>
 
     {mgmt_wrappers}
+    <div class="subpanel-perf" id="country" style="display:none">{country_panel}</div>
   </div>
 
   <!-- ============ DATA QUALITY REVIEW ============ -->
@@ -1264,6 +1354,7 @@ function showSub(g,id){{
   for(var i=0;i<ps.length;i++){{ ps[i].style.display = ps[i].id===id ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.subtab-'+g);
   for(var j=0;j<ts.length;j++){{ ts[j].className = 'subtab subtab-'+g + (ts[j].getAttribute('data-sub')===id ? ' on' : ''); }}
+  if(g==='perf'){{ var pk=document.getElementById('perfKpis'); if(pk){{ pk.style.display=(id==='country')?'none':'block'; }} }}
 }}
 function showLoc(id){{
   var ps=document.querySelectorAll('.locpanel');
@@ -1372,6 +1463,71 @@ function applyHub(){{
     setTimeout(function(){{ requestAnimationFrame(step); }}, delay);
   }})(nums[i],i); }}
 }})();
+
+/* ---- country profile ---- */
+var COUNTRY_DATA = {COUNTRY_JSON};
+function _cesc(s){{ return String(s).replace(/[&<>"]/g,function(m){{ return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[m]; }}); }}
+function _ck(label,val,sub,accent,color){{
+  return '<div class="kpi" style="border-top:3px solid '+accent+'"><div class="kpilabel">'+label+'</div>'
+    +'<div class="kpival" style="color:'+color+'">'+val+'</div><div class="kpisub">'+sub+'</div></div>';
+}}
+function _cbars(items,color,track){{
+  if(!items||!items.length) return '<div class="muted">None recorded.</div>';
+  var mx=1,i; for(i=0;i<items.length;i++){{ mx=Math.max(mx,items[i][1]); }}
+  var h='';
+  for(i=0;i<items.length;i++){{
+    h+='<div class="blrow" style="grid-template-columns:190px 1fr 34px">'
+      +'<div class="bllabel">'+_cesc(items[i][0])+'</div>'
+      +'<div class="track" style="height:9px;background:'+track+';border-radius:5px"><div style="height:100%;width:'+(100*items[i][1]/mx).toFixed(1)+'%;background:'+color+';border-radius:5px"></div></div>'
+      +'<div class="bln">'+items[i][1]+'</div></div>';
+  }}
+  return h;
+}}
+function renderCountry(name){{
+  var d=COUNTRY_DATA[name]; if(!d){{ return; }}
+  var i, meta=document.getElementById('ctryMeta');
+  if(meta){{ meta.innerHTML='<b>'+d.region+'</b> region &middot; <b>'+d.n+'</b> TA request'+(d.n===1?'':'s')+' &middot; <b>'+d.leads.length+'</b> TA lead'+(d.leads.length===1?'':'s'); }}
+  var kpis='<div class="kpistrip">'
+    +_ck('Total requests',d.n,d.big+' big ticket &middot; '+d.routine+' routine','#0B6FA4','#0F2238')
+    +_ck('On track',d.onTrack,'in progress, on time','#3E9CD6','#0B6FA4')
+    +_ck('Overdue',d.overdue,'past target date','#C0453F','#C0453F')
+    +_ck('Completed',d.completed,'reached 100%','#2E7D5B','#2E7D5B')
+    +_ck('New (30 days)',d.recent,'opened since {WIN_STR}','#1CABE2','#0F2238')
+    +'</div>';
+  var segbar=''; for(i=0;i<d.segs.length;i++){{ segbar+='<span style="width:'+d.segs[i][1]+'%;background:'+d.segs[i][0]+'"></span>'; }}
+  var legend=''; for(i=0;i<d.counts.length;i++){{ var s=d.counts[i]; legend+='<div class="lg"><span class="lgdot" style="background:'+s[2]+'"></span>'+s[0]+' &middot; '+s[1]+'</div>'; }}
+  var statusCard='<div class="card"><div class="cardtitle">Implementation status</div>'
+    +'<div class="track" style="height:16px;background:#EEF2F6;border-radius:8px;margin-bottom:14px"><div class="bar" style="height:100%;width:100%;border-radius:8px">'+segbar+'</div></div>'
+    +'<div class="legend">'+legend+'</div></div>';
+  var offersCard='<div class="card"><div class="cardtitle">Requested support &middot; programme offers</div>'+_cbars(d.offers,'#0B6FA4','#E9F0F6')+'</div>';
+  var areasCard='<div class="card"><div class="cardtitle">Thematic areas (via assigned TA lead)</div>'+_cbars(d.areas,'#0B5A8A','#EAF2F8')+'</div>';
+  var modCard='<div class="card"><div class="cardtitle">Delivery modality</div>'+_cbars(d.modality,'#5BA3D0','#EEF2F6')+'</div>';
+  var leadsCard='<div class="card"><div class="cardtitle">TA leads supporting '+_cesc(name)+'</div>'+_cbars(d.leads,'#2C7DB5','#EAF2F8')+'</div>';
+  var compCard='<div class="card"><div class="cardtitle">Portfolio composition</div>'
+    +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Big ticket</div><div class="track" style="height:12px;background:#F5E6D6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.big/d.n:0).toFixed(1)+'%;background:#B0602C;border-radius:6px"></div></div><div class="cpct">'+d.big+'</div></div>'
+    +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Routine</div><div class="track" style="height:12px;background:#E4EEF6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.routine/d.n:0).toFixed(1)+'%;background:#0B5A8A;border-radius:6px"></div></div><div class="cpct">'+d.routine+'</div></div>'
+    +'</div>';
+  var reqs='';
+  for(i=0;i<d.reqs.length;i++){{ var r=d.reqs[i];
+    var chips='<span class="creqchip '+(r.type==='Big Ticket'?'big':'')+'">'+_cesc(r.type)+'</span>'
+      +'<span class="creqchip area">'+_cesc(r.area)+'</span>'
+      +'<span class="creqchip">'+_cesc(r.offer)+'</span>';
+    reqs+='<div class="creq">'
+      +'<div class="creqid">'+_cesc(r.id)+'</div>'
+      +'<div><div class="creqtitle">'+_cesc(r.desc)+'</div><div class="creqchips">'+chips+'</div></div>'
+      +'<div><span class="creqpill" style="background:'+r.sbg+';color:'+r.sfg+'">'+r.status+'</span>'
+      +'<div class="creqdate'+(r.overdue?' od':'')+'">'+(r.overdue?'Overdue &middot; ':'Due ')+r.xc+'</div></div>'
+      +'<div class="creqlead"><span class="l">TA lead</span>'+_cesc(r.lead)+'</div></div>';
+  }}
+  var reqCard='<div class="card mt16"><div class="cardtitle">All '+d.n+' requests for '+_cesc(name)+'</div><div class="creqscroll">'+reqs+'</div></div>';
+  document.getElementById('ctryBody').innerHTML=
+    kpis
+    +'<div class="grid2 mt16">'+statusCard+offersCard+'</div>'
+    +'<div class="grid2 mt16">'+areasCard+leadsCard+'</div>'
+    +'<div class="grid2 mt16">'+modCard+compCard+'</div>'
+    +reqCard;
+}}
+(function(){{ var sel=document.getElementById('ctrySel'); if(sel){{ renderCountry(sel.value); }} }})();
 </script>
 </body></html>'''
 
