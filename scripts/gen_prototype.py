@@ -872,14 +872,18 @@ for _office, rr in _ctry_groups.items():
             'area': c['area'], 'lead': c['lead'] or '—',
             'xc': fmtdate(c['xc']), 'overdue': od,
         })
+    _area_groups = defaultdict(list)
+    for c in rr:
+        _area_groups[c['area']].append(c)
+    areas_tree = [[_ar, len(_arows), _ctop(Counter(c['lead'] for c in _arows if c['lead']))]
+                  for _ar, _arows in sorted(_area_groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
     COUNTRY_DATA[_office] = {
         'region': rr[0]['region'], 'n': n, 'big': big, 'routine': n - big,
         'completed': completed, 'unassigned': unassigned,
         'overdue': len(_od), 'onTrack': len(_act) - len(_od), 'recent': recent_n,
         'segs': segs, 'counts': counts,
         'offers': _ctop(Counter(c['offer'] or '(no offer)' for c in rr)),
-        'areas': _ctop(Counter(c['area'] for c in rr)),
-        'modality': _ctop(Counter(c['modality'] or '(unspecified)' for c in rr)),
+        'areasTree': areas_tree,
         'leads': _ctop(Counter(c['lead'] for c in rr if c['lead'])),
         'reqs': reqs,
     }
@@ -1247,6 +1251,16 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .cleads[open] .cchev {{ transform:rotate(90deg); }}
   .cleadn {{ margin-left:auto; font-size:12px; font-weight:700; color:#43586B; background:#EEF2F6; padding:2px 10px; border-radius:999px; }}
   .cleadbody {{ margin-top:12px; }}
+  /* thematic area -> assigned lead staff tree */
+  .taarea {{ margin-bottom:16px; }}
+  .taarea-head {{ display:grid; grid-template-columns:260px 1fr 40px; gap:16px; align-items:center; margin-bottom:9px; }}
+  .taarea-name {{ font-size:13.5px; font-weight:700; color:#0F2238; }}
+  .taarea-head .bln {{ font-size:13.5px; }}
+  .taleads {{ margin-left:20px; padding-left:16px; border-left:2px solid #EDF1F4; }}
+  .talead {{ display:grid; grid-template-columns:240px 1fr 34px; gap:12px; align-items:center; margin-bottom:8px; }}
+  .talead:last-child {{ margin-bottom:2px; }}
+  .talead-name {{ font-size:12px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  @media (max-width:680px) {{ .taarea-head {{ grid-template-columns:1fr 60px 40px; }} .talead {{ grid-template-columns:1fr 50px 34px; }} }}
 </style></head>
 <body>
 <div class="wrap">
@@ -1520,6 +1534,28 @@ function _offerBars(items){{
   }}
   return h;
 }}
+function _areaTree(areas){{
+  if(!areas||!areas.length){{ return '<div class="muted">None recorded.</div>'; }}
+  var mx=1,i; for(i=0;i<areas.length;i++){{ mx=Math.max(mx,areas[i][1]); }}
+  var h='';
+  for(i=0;i<areas.length;i++){{
+    var nm=areas[i][0], n=areas[i][1], leads=areas[i][2];
+    h+='<div class="taarea"><div class="taarea-head"><div class="taarea-name">'+_cesc(nm)+'</div>'
+      +'<div class="track" style="height:11px;background:#EAF2F8;border-radius:6px"><div style="height:100%;width:'+(100*n/mx).toFixed(1)+'%;background:#0B5A8A;border-radius:6px"></div></div>'
+      +'<div class="bln">'+n+'</div></div>';
+    if(leads&&leads.length){{
+      h+='<div class="taleads">';
+      for(var j=0;j<leads.length;j++){{
+        h+='<div class="talead"><div class="talead-name">'+_cesc(leads[j][0])+'</div>'
+          +'<div class="track" style="height:8px;background:#EEF2F6;border-radius:5px"><div style="height:100%;width:'+(100*leads[j][1]/mx).toFixed(1)+'%;background:#5BA3D0;border-radius:5px"></div></div>'
+          +'<div class="bln">'+leads[j][1]+'</div></div>';
+      }}
+      h+='</div>';
+    }}
+    h+='</div>';
+  }}
+  return h;
+}}
 function renderCountry(name){{
   var d=COUNTRY_DATA[name]; if(!d){{ return; }}
   var i, meta=document.getElementById('ctryMeta');
@@ -1537,10 +1573,7 @@ function renderCountry(name){{
     +'<div class="track" style="height:16px;background:#EEF2F6;border-radius:8px;margin-bottom:14px"><div class="bar" style="height:100%;width:100%;border-radius:8px">'+segbar+'</div></div>'
     +'<div class="legend">'+legend+'</div></div>';
   var offersCard='<div class="card"><div class="cardtitle">Requested support &middot; programme offers</div>'+_offerBars(d.offers)+'</div>';
-  var areasCard='<div class="card"><div class="cardtitle">Thematic areas (via assigned TA lead)</div>'+_cbars(d.areas,'#0B5A8A','#EAF2F8')
-    +'<details class="cleads"><summary class="cleadsum"><span class="cchev">&#9656;</span>TA leads supporting '+_cesc(name)+'<span class="cleadn">'+d.leads.length+'</span></summary>'
-    +'<div class="cleadbody">'+_cbars(d.leads,'#2C7DB5','#EAF2F8')+'</div></details></div>';
-  var modCard='<div class="card"><div class="cardtitle">Delivery modality</div>'+_cbars(d.modality,'#5BA3D0','#EEF2F6')+'</div>';
+  var areasCard='<div class="card"><div class="cardtitle">TA requests by thematic area and assigned lead staff</div>'+_areaTree(d.areasTree)+'</div>';
   var compCard='<div class="card"><div class="cardtitle">Portfolio composition</div>'
     +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Big ticket</div><div class="track" style="height:12px;background:#F5E6D6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.big/d.n:0).toFixed(1)+'%;background:#B0602C;border-radius:6px"></div></div><div class="cpct">'+d.big+'</div></div>'
     +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Routine</div><div class="track" style="height:12px;background:#E4EEF6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.routine/d.n:0).toFixed(1)+'%;background:#0B5A8A;border-radius:6px"></div></div><div class="cpct">'+d.routine+'</div></div>'
@@ -1562,7 +1595,7 @@ function renderCountry(name){{
     kpis
     +'<div class="grid2 mt16">'+compCard+statusCard+'</div>'
     +'<div class="mt16">'+offersCard+'</div>'
-    +'<div class="grid2 mt16">'+areasCard+modCard+'</div>'
+    +'<div class="mt16">'+areasCard+'</div>'
     +reqCard;
 }}
 (function(){{ var sel=document.getElementById('ctrySel'); if(sel){{ renderCountry(sel.value); }} }})();
