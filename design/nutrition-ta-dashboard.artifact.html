@@ -337,16 +337,21 @@
   .cleads[open] .cchev { transform:rotate(90deg); }
   .cleadn { margin-left:auto; font-size:12px; font-weight:700; color:#43586B; background:#EEF2F6; padding:2px 10px; border-radius:999px; }
   .cleadbody { margin-top:12px; }
-  /* thematic area -> assigned lead staff tree */
-  .taarea { margin-bottom:16px; }
-  .taarea-head { display:grid; grid-template-columns:260px 1fr 40px; gap:16px; align-items:center; margin-bottom:9px; }
+  /* thematic area -> assigned lead staff tree (collapsible per area) */
+  .taarea { border-top:1px solid #F1F4F7; }
+  .taarea:first-child { border-top:none; }
+  .taarea-head { display:grid; grid-template-columns:20px 240px 1fr 40px; gap:16px; align-items:center; cursor:pointer; list-style:none; padding:12px 0; }
+  .taarea-head::-webkit-details-marker { display:none; }
+  .taarea-head:hover .taarea-name { color:#0B5A8A; }
   .taarea-name { font-size:13.5px; font-weight:700; color:#0F2238; }
   .taarea-head .bln { font-size:13.5px; }
-  .taleads { margin-left:20px; padding-left:16px; border-left:2px solid #EDF1F4; }
+  .tachev { color:#9AA7B2; font-size:11px; transition:transform .15s ease; }
+  .taarea[open] .tachev { transform:rotate(90deg); }
+  .taleads { margin:2px 0 14px 34px; padding-left:16px; border-left:2px solid #EDF1F4; }
   .talead { display:grid; grid-template-columns:240px 1fr 34px; gap:12px; align-items:center; margin-bottom:8px; }
   .talead:last-child { margin-bottom:2px; }
   .talead-name { font-size:12px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  @media (max-width:680px) { .taarea-head { grid-template-columns:1fr 60px 40px; } .talead { grid-template-columns:1fr 50px 34px; } }
+  @media (max-width:680px) { .taarea-head { grid-template-columns:20px 1fr 60px 40px; } .talead { grid-template-columns:1fr 50px 34px; } }
 </style>
 <div class="wrap">
 <div id="maptip" class="maptip"></div>
@@ -802,9 +807,9 @@ function _areaTree(areas){
   var h='';
   for(i=0;i<areas.length;i++){
     var nm=areas[i][0], n=areas[i][1], leads=areas[i][2];
-    h+='<div class="taarea"><div class="taarea-head"><div class="taarea-name">'+_cesc(nm)+'</div>'
+    h+='<details class="taarea"><summary class="taarea-head"><span class="tachev">&#9656;</span><div class="taarea-name">'+_cesc(nm)+'</div>'
       +'<div class="track" style="height:11px;background:#EAF2F8;border-radius:6px"><div style="height:100%;width:'+(100*n/mx).toFixed(1)+'%;background:#0B5A8A;border-radius:6px"></div></div>'
-      +'<div class="bln">'+n+'</div></div>';
+      +'<div class="bln">'+n+'</div></summary>';
     if(leads&&leads.length){
       h+='<div class="taleads">';
       for(var j=0;j<leads.length;j++){
@@ -814,7 +819,7 @@ function _areaTree(areas){
       }
       h+='</div>';
     }
-    h+='</div>';
+    h+='</details>';
   }
   return h;
 }
