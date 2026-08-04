@@ -328,6 +328,20 @@
   .creqlead { font-size:12.5px; color:#43586B; } .creqlead .l { font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; color:#9AA7B2; font-weight:700; display:block; margin-bottom:2px; }
   .creqscroll { max-height:560px; overflow-y:auto; padding-right:6px; }
   @media (max-width:680px) { .creq { grid-template-columns:1fr; gap:6px; } }
+  /* programme offers — full width, large labels, icon per offer */
+  .offerrow { display:grid; grid-template-columns:36px 360px 1fr 40px; gap:16px; align-items:center; margin-bottom:13px; }
+  .offericon { width:32px; height:32px; border-radius:9px; background:#EAF2F8; display:flex; align-items:center; justify-content:center; font-size:17px; line-height:1; }
+  .offerlbl { font-size:14px; color:#0F2238; font-weight:600; line-height:1.3; }
+  .offerrow .bln { font-size:14px; }
+  @media (max-width:760px) { .offerrow { grid-template-columns:36px 1fr 40px; } .offerlbl { grid-column:2 / 4; } }
+  /* collapsible TA leads inside the thematic-areas card */
+  .cleads { margin-top:16px; border-top:1px solid #F1F4F7; padding-top:6px; }
+  .cleadsum { cursor:pointer; list-style:none; font-size:13px; font-weight:700; color:#0B5A8A; padding:7px 2px; display:flex; align-items:center; gap:9px; }
+  .cleadsum::-webkit-details-marker { display:none; }
+  .cleads .cchev { display:inline-block; transition:transform .15s ease; color:#9AA7B2; font-size:11px; }
+  .cleads[open] .cchev { transform:rotate(90deg); }
+  .cleadn { margin-left:auto; font-size:12px; font-weight:700; color:#43586B; background:#EEF2F6; padding:2px 10px; border-radius:999px; }
+  .cleadbody { margin-top:12px; }
 </style></head>
 <body>
 <div class="wrap">
@@ -755,6 +769,29 @@ function _cbars(items,color,track){
   }
   return h;
 }
+var OFFER_ICON={
+  'Programme Management Scale-Up Support':'\u{1F4C8}',
+  'Policy Reform and Programme Design':'\u{1F4CB}',
+  'Financing for Scale':'\u{1F4B0}',
+  'Humanitarian Action and Resilience':'\u{26D1}\u{FE0F}',
+  'Digital and Infrastructure':'\u{1F5A5}\u{FE0F}',
+  'Workforce Development and Institution Building':'\u{1F3DB}\u{FE0F}',
+  'Equity and Demand Generation':'\u{1F91D}'
+};
+function _offerBars(items){
+  if(!items||!items.length){ return '<div class="muted">None recorded.</div>'; }
+  var mx=1,i; for(i=0;i<items.length;i++){ mx=Math.max(mx,items[i][1]); }
+  var h='';
+  for(i=0;i<items.length;i++){
+    var nm=items[i][0], n=items[i][1], ic=OFFER_ICON[nm]||'\u{1F539}';
+    h+='<div class="offerrow">'
+      +'<div class="offericon">'+ic+'</div>'
+      +'<div class="offerlbl">'+_cesc(nm)+'</div>'
+      +'<div class="track" style="height:11px;background:#E9F0F6;border-radius:6px"><div style="height:100%;width:'+(100*n/mx).toFixed(1)+'%;background:#0B6FA4;border-radius:6px"></div></div>'
+      +'<div class="bln">'+n+'</div></div>';
+  }
+  return h;
+}
 function renderCountry(name){
   var d=COUNTRY_DATA[name]; if(!d){ return; }
   var i, meta=document.getElementById('ctryMeta');
@@ -771,10 +808,11 @@ function renderCountry(name){
   var statusCard='<div class="card"><div class="cardtitle">Implementation status</div>'
     +'<div class="track" style="height:16px;background:#EEF2F6;border-radius:8px;margin-bottom:14px"><div class="bar" style="height:100%;width:100%;border-radius:8px">'+segbar+'</div></div>'
     +'<div class="legend">'+legend+'</div></div>';
-  var offersCard='<div class="card"><div class="cardtitle">Requested support &middot; programme offers</div>'+_cbars(d.offers,'#0B6FA4','#E9F0F6')+'</div>';
-  var areasCard='<div class="card"><div class="cardtitle">Thematic areas (via assigned TA lead)</div>'+_cbars(d.areas,'#0B5A8A','#EAF2F8')+'</div>';
+  var offersCard='<div class="card"><div class="cardtitle">Requested support &middot; programme offers</div>'+_offerBars(d.offers)+'</div>';
+  var areasCard='<div class="card"><div class="cardtitle">Thematic areas (via assigned TA lead)</div>'+_cbars(d.areas,'#0B5A8A','#EAF2F8')
+    +'<details class="cleads"><summary class="cleadsum"><span class="cchev">&#9656;</span>TA leads supporting '+_cesc(name)+'<span class="cleadn">'+d.leads.length+'</span></summary>'
+    +'<div class="cleadbody">'+_cbars(d.leads,'#2C7DB5','#EAF2F8')+'</div></details></div>';
   var modCard='<div class="card"><div class="cardtitle">Delivery modality</div>'+_cbars(d.modality,'#5BA3D0','#EEF2F6')+'</div>';
-  var leadsCard='<div class="card"><div class="cardtitle">TA leads supporting '+_cesc(name)+'</div>'+_cbars(d.leads,'#2C7DB5','#EAF2F8')+'</div>';
   var compCard='<div class="card"><div class="cardtitle">Portfolio composition</div>'
     +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Big ticket</div><div class="track" style="height:12px;background:#F5E6D6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.big/d.n:0).toFixed(1)+'%;background:#B0602C;border-radius:6px"></div></div><div class="cpct">'+d.big+'</div></div>'
     +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Routine</div><div class="track" style="height:12px;background:#E4EEF6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.routine/d.n:0).toFixed(1)+'%;background:#0B5A8A;border-radius:6px"></div></div><div class="cpct">'+d.routine+'</div></div>'
@@ -794,9 +832,9 @@ function renderCountry(name){
   var reqCard='<div class="card mt16"><div class="cardtitle">All '+d.n+' requests for '+_cesc(name)+'</div><div class="creqscroll">'+reqs+'</div></div>';
   document.getElementById('ctryBody').innerHTML=
     kpis
-    +'<div class="grid2 mt16">'+statusCard+offersCard+'</div>'
-    +'<div class="grid2 mt16">'+areasCard+leadsCard+'</div>'
-    +'<div class="grid2 mt16">'+modCard+compCard+'</div>'
+    +'<div class="grid2 mt16">'+compCard+statusCard+'</div>'
+    +'<div class="mt16">'+offersCard+'</div>'
+    +'<div class="grid2 mt16">'+areasCard+modCard+'</div>'
     +reqCard;
 }
 (function(){ var sel=document.getElementById('ctrySel'); if(sel){ renderCountry(sel.value); } })();
