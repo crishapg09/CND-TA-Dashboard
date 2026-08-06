@@ -1278,7 +1278,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     </div>
     <div class="meta">
       <div><b>{len(PERF)}</b> CO requests &middot; <b>{len(staff)}</b> team members</div>
-      <div>Created Jan&ndash;Jul 2026 &middot; as of {TODAY_STR}</div>
+      <div>Created Jan&ndash;Aug 2026 &middot; as of {TODAY_STR}</div>
     </div>
   </header>
 
