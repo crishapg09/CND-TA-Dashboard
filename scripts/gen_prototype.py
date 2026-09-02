@@ -496,12 +496,12 @@ no_lead = [c for c in setupSet if c['status'] in ('0%', '25%') and not c['lead']
 # stage 2
 delN = len(delivery)
 cfields = [('Objectives', lambda c: bool(c['ho'])), ('TA lead', lambda c: bool(c['lead'])),
-           ('Expected completion', lambda c: c['xc'] is not None), ('Description', lambda c: bool(c['hd'])),
+           ('Expected completion', lambda c: c['xc'] is not None), ('Description/details', lambda c: bool(c['hdd'])),
            ('Modality', lambda c: bool(c['modality'])), ('Programme offer', lambda c: bool(c['offer']))]
 def qcolor(p): return '#2E7D5B' if p >= 95 else '#3E9CD6' if p >= 80 else '#E0A21E'
 completeness = [(label, pct(sum(1 for c in delivery if fn(c)), delN)) for label, fn in cfields]
 def passes(c):
-    ok = bool(c['ho'] and c['lead'] and c['xc'] is not None and c['hd'] and c['modality'] and c['offer'])
+    ok = bool(c['ho'] and c['lead'] and c['xc'] is not None and c['hdd'] and c['modality'] and c['offer'])
     bad = c['xc'] is not None and c['xs'] is not None and c['xc'] < c['xs']
     return ok and not bad
 passN = sum(1 for c in delivery if passes(c))
@@ -518,7 +518,7 @@ def reason(c):
     if not c['ho']: return 'no objectives'
     if not c['lead']: return 'no TA lead'
     if c['xc'] is None: return 'no target date'
-    if not c['hd']: return 'no description'
+    if not c['hdd']: return 'no description/details'
     if not c['modality']: return 'no modality'
     if not c['offer']: return 'no offer'
     if c['xs'] is not None and c['xc'] < c['xs']: return 'target before start'
@@ -1575,7 +1575,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       <div class="card"><div class="cardtitle">Field completeness ({delN} in delivery)</div>{completeness_rows()}</div>
       <div class="card"><div class="cardtitle">Delivery quality score</div>
         <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px"><div class="score" style="color:{'#2E7D5B' if score>=80 else '#E0A21E' if score>=60 else '#C0453F'}">{score}%</div><div class="muted">{passN} of {delN} pass every check</div></div>
-        <div class="cardnote" style="margin-top:14px"><strong>What this says:</strong> a request passes when it has objectives, a lead, a target date, a description, a modality and a programme offer — and its completion target is not before its start.</div>
+        <div class="cardnote" style="margin-top:14px"><strong>What this says:</strong> a request passes when it has objectives, a lead, a target date, a description/details, a modality and a programme offer — and its completion target is not before its start.</div>
       </div>
     </div>
     <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>

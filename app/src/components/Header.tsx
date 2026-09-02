@@ -37,7 +37,7 @@ export function Header({ metaTotal, isQuality, coFrom, coUnassigned }: HeaderPro
               <span style={{ fontWeight: 700, color: '#0F2238' }}>{metaTotal}</span> CO requests in source
             </div>
           )}
-          <div>Created Jan&ndash;Jul 2026 &middot; as of 1 Sep 2026</div>
+          <div>Created Jan&ndash;Jul 2026 &middot; as of 2 Sep 2026</div>
         </div>
       </div>
     </div>
