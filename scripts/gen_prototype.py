@@ -462,8 +462,9 @@ def build_loc_bars(L, areas, lac):
 # DATA QUALITY (co = CO, all statuses)
 # ======================================================================
 co = CO
-setupSet = [c for c in co if c['status'] in ('Unassigned', '0%', '25%')]
-started = [c for c in co if c['status'] in ('50%', '75%')]
+# Stage boundaries: received/in-review = Unassigned + 0%; started/in-delivery = 25%+50%+75%.
+setupSet = [c for c in co if c['status'] in ('Unassigned', '0%')]
+started = [c for c in co if c['status'] in ('25%', '50%', '75%')]
 completedC = [c for c in co if c['status'] == '100%']
 delivery = started + completedC
 activeCO = [c for c in co if c['status'] not in ('100%', 'Discontinued')]
@@ -477,7 +478,7 @@ stalledSetup = [c for c in setupSet if is_stalled(c)]
 
 # stage 1
 stage_color = {'Unassigned': '#E0A21E', '0%': '#9CC6E0', '25%': '#5BA3D0'}
-setup_funnel = [(s, sum(1 for c in setupSet if c['status'] == s), stage_color[s]) for s in ('Unassigned', '0%', '25%')]
+setup_funnel = [(s, sum(1 for c in setupSet if c['status'] == s), stage_color[s]) for s in ('Unassigned', '0%')]
 aging = [('0–14 days', sum(1 for c in setupSet if stall_days(c) <= 14), '#3E9CD6'),
          ('15–30 days', sum(1 for c in setupSet if 14 < stall_days(c) <= 30), '#E0A21E'),
          ('30+ days', sum(1 for c in setupSet if stall_days(c) > 30), '#C0453F')]
@@ -540,15 +541,37 @@ dq_overdue_area = [(k, len(v)) for k, v in groupby_area(dq_overdue)]
 not_closed = [c for c in co if c['status'] in ('100%', 'Discontinued') and not c['cl']]
 for c in not_closed: c['_m'] = 'completed' if c['status'] == '100%' else 'discontinued'
 
+# numbered section header (single-page DQ layout)
+def dqsec(n, title, sub):
+    return (f'<div class="sech"><span class="secn">{n}</span>'
+            f'<div><div class="sect">{esc(title)}</div><div class="secs">{esc(sub)}</div></div></div>')
+
+# one consolidated table with received / overdue / completed filters
+_dqhead = ['Case', 'Country', 'Description', 'Thematic area', 'Exp. completion', 'Status', 'State', 'TA lead']
+_recv_rows = sorted(setupSet, key=lambda c: -stall_days(c))
+for c in _recv_rows:
+    c['_m'] = str(stall_days(c)) + 'd'
+recv_tbl = req_table('Received & in review — Unassigned · 0%', _recv_rows[:80], 'Days in stage', '#CD6A2E',
+                     cols=_dqhead + ['Days in stage'])
+for c in dq_overdue:
+    c['_m'] = '+' + str(round(TODAY - c['xc'])) + 'd'
+over_tbl = req_table('Overdue — active requests past their target date', dq_overdue[:80], 'Days over', '#C0453F',
+                     cols=_dqhead + ['Days over'])
+_done_rows = sorted(completedC, key=lambda c: -((c['cl'] if c['cl'] is not None else c['rs']) or 0))
+for c in _done_rows:
+    c['_m'] = fmtdate(c['cl']) if c['cl'] else 'not closed'
+done_tbl = req_table('Completed — reached 100%', _done_rows[:80], 'Closed', '#2E7D5B',
+                     cols=_dqhead + ['Closed'])
+
 dq_total = sum(1 for c in co if c['status'] != 'Discontinued')   # kept CO requests
 _awaiting = sum(1 for c in setupSet if c['status'] == 'Unassigned')
 _insetup = sum(1 for c in setupSet if c['status'] != 'Unassigned')
 def _dqfoot(v): return f'{pct(v, dq_total)}% of all requests'
 dq_kpis = kpi_strip([
     ('Awaiting assignment', str(_awaiting), 'unassigned CO requests', '#E0A21E', '#0F2238', _dqfoot(_awaiting)),
-    ('In setup (0–25%)', str(_insetup), 'being scoped with the CO', '#5BA3D0', '#0F2238', _dqfoot(_insetup)),
+    ('In setup (0%)', str(_insetup), 'received, not yet scoped', '#5BA3D0', '#0F2238', _dqfoot(_insetup)),
     ('Stalled in setup', str(len(stalledSetup)), 'no progress for 30+ days (14+ if unassigned)', '#CD6A2E', '#CD6A2E', _dqfoot(len(stalledSetup))),
-    ('In delivery (50%+)', str(len(started)), 'work has started', '#2C7DB5', '#0F2238', _dqfoot(len(started))),
+    ('In delivery (25%+)', str(len(started)), 'scoping agreed, work started', '#2C7DB5', '#0F2238', _dqfoot(len(started))),
     ('Needing cleanup', str(len(flagRecords)), '50%+ with a data flag', '#C0453F', '#C0453F', _dqfoot(len(flagRecords))),
     ('Overdue', str(len(dq_overdue)), 'active past target date', '#C0453F', '#C0453F', _dqfoot(len(dq_overdue))),
 ])
@@ -863,21 +886,24 @@ def render_work(rows):
     lead_rows = ''.join(_inv_row(nm, v, False)
                         for nm, v in sorted((tp for tp in team_people if tp[1]['lead'] > 0), key=lambda kv: (-kv[1]['lead'], kv[0])))
 
-    # role split by thematic area — lead + internal (nutrition) + external (cross-sectoral)
-    area_inv = defaultdict(lambda: [0, 0, 0])  # [lead, internal collab, external collab]
+    # staff supporting each thematic area — DISTINCT people, by role.
+    # A person who both leads and collaborates in an area is counted once (as a lead),
+    # so the three segments are disjoint and sum to the area's headcount.
+    area_sets = defaultdict(lambda: {'lead': set(), 'int': set(), 'ext': set()})
     for c in rows:
         a = c['area']
         if c['lead']:
-            area_inv[a][0] += 1
+            area_sets[a]['lead'].add(c['lead'])
         for p in c.get('collab', []):
-            area_inv[a][1 if p in by_name else 2] += 1
+            area_sets[a]['int' if p in by_name else 'ext'].add(p)
+    area_inv = {a: [len(s['lead']), len(s['int'] - s['lead']), len(s['ext'])] for a, s in area_sets.items()}
     amax = max((l + i + e for l, i, e in area_inv.values()), default=1) or 1
     area_sorted = sorted(area_inv.items(), key=lambda kv: -sum(kv[1]))
 
     def _area_pane(mode):
         html = ''
         for a, (l, i, e) in area_sorted:
-            tl = esc(f'{l} lead assignment{_pl(l)} — {a}: {l} request{_pl(l)}, one lead each')
+            tl = esc(f'{l} lead{_pl(l)} — distinct staff who lead {a} requests')
             if mode == 'lead':
                 barw, num, split = 100 * l / amax, l, ''
                 inner = f'<span title="{tl}" style="width:100%;background:{LEAD_C}"></span>' if l else ''
@@ -885,8 +911,8 @@ def render_work(rows):
                 t = l + i + e
                 barw, num = 100 * t / amax, t
                 split = f'<div class="invsplit" style="color:{COLLAB_C}">{round(100*(i+e)/t) if t else 0}%</div>'
-                ti = esc(f'{i} collaboration{_pl(i)} by nutrition colleagues on {a} requests')
-                te = esc(f'{e} collaboration{_pl(e)} from other sectors, CO / RO on {a} requests')
+                ti = esc(f'{i} internal collaborator{_pl(i)} — nutrition colleagues supporting {a} (not leading it)')
+                te = esc(f'{e} external collaborator{_pl(e)} — people from other sectors, CO / RO supporting {a}')
                 inner = ''
                 if l:
                     inner += f'<span title="{tl}" style="width:{100*l/t:.2f}%;background:{LEAD_C}"></span>'
@@ -977,8 +1003,8 @@ def render_work(rows):
       </div>
       <div class="modebar"><span class="kpifl">Show</span><button class="wtoggle modetoggle on" data-mode="all" onclick="showMode('all')">Leads + all collaborators</button><button class="wtoggle modetoggle" data-mode="lead" onclick="showMode('lead')">Leads only</button><span class="muted" style="font-size:11.5px">applies to every chart below</span></div>
       <div class="card mt16">
-        <div class="cardtitle">Role split by thematic area — how much delivery is collaboration</div>
-        <div class="invcap">Per area: lead assignments + collaborations by nutrition colleagues (green) and from other sectors / CO / RO (amber). The % is the collaborator share. Hover any segment for its exact count.</div>
+        <div class="cardtitle">Staff supporting each thematic area — leads &amp; collaborators</div>
+        <div class="invcap">Distinct <b>people</b> supporting each area: those who <b>lead</b> it (blue), nutrition colleagues who <b>collaborate</b> (green), and people from other sectors / CO / RO who collaborate (amber). Someone who both leads and collaborates in an area is counted once, as a lead, so the segments sum to the area's headcount. The % is the collaborator share; hover any segment for its exact count.</div>
         {area_legend}
         <div class="modepane" data-mode="all">{area_all}</div>
         <div class="modepane" data-mode="lead" style="display:none">{area_lead}</div>
@@ -1326,6 +1352,12 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .wtoggle.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
   .modebar {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:16px 0 0; }}
   .modebar .kpifl {{ margin-right:2px; }}
+  /* single-page section headers (numbered) */
+  .sech {{ display:flex; align-items:center; gap:14px; margin:30px 0 14px; }}
+  .secn {{ flex:none; width:30px; height:30px; border-radius:50%; background:#16385C; color:#fff; font-weight:700; font-size:15px; display:flex; align-items:center; justify-content:center; }}
+  .sect {{ font-size:18px; font-weight:700; letter-spacing:-.01em; }}
+  .secs {{ font-size:13px; color:#5B7186; margin-top:2px; }}
+  .dqtogs {{ display:flex; gap:6px; margin:2px 0 4px; flex-wrap:wrap; }}
   .wnote {{ background:#FBF7EE; border:1px solid #EAD9B0; border-left:3px solid #D8A93B; border-radius:8px; padding:12px 15px; margin:16px 0 2px; font-size:12.5px; color:#6E5B33; line-height:1.55; }}
   .wnote b {{ color:#5A4A28; }}
   .wnote-tag {{ display:inline-block; font-size:10px; letter-spacing:.07em; text-transform:uppercase; font-weight:700; color:#B0862C; margin-right:8px; }}
@@ -1503,67 +1535,47 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 
   <!-- ============ DATA QUALITY REVIEW ============ -->
   <div class="toppanel" id="dq" style="display:none">
-    <div style="font-size:13px;color:#5B7186;margin:6px 0 14px;max-width:900px;line-height:1.5">Data quality read through the implementation-status lifecycle: <b>setup / in review</b> (Unassigned · 0% · 25%) where the concern is stalling, and <b>delivery / started</b> (50%+) where the concern is completeness &amp; consistency.</div>
+    <div style="font-size:13px;color:#5B7186;margin:6px 0 14px;max-width:900px;line-height:1.5">Data quality read through the implementation-status lifecycle: <b>received / in review</b> (Unassigned · 0%) where the concern is stalling, and <b>started / in delivery</b> (25% · 50% · 75%) where the concern is completeness &amp; consistency.</div>
     {dq_kpis}
 
-    <div class="subtabs">
-      <button class="subtab subtab-dq on" data-sub="recv" onclick="showSub('dq','recv')">Received &amp; in review</button>
-      <button class="subtab subtab-dq" data-sub="deliv" onclick="showSub('dq','deliv')">Started &amp; in delivery</button>
-      <button class="subtab subtab-dq" data-sub="close" onclick="showSub('dq','close')">Overdue &amp; closure</button>
+    {dqsec(1, 'Received & in review', 'Unassigned · 0% — the concern here is stalling before delivery starts.')}
+    <div class="grid2">
+      <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
+      <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
+    </div>
+    <div class="grid3 mt16">
+      <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#CD6A2E', '#F6E9DE', label_w=150)}</div>
+      <div class="card"><div class="cardtitle">Unassigned, by thematic area</div>{barlist(unassigned_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
+      <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
     </div>
 
-    <!-- received -->
-    <div class="subpanel-dq" id="recv" style="display:block">
-      {panelhead('Received & in review', 'Unassigned · 0% · 25% — the concern here is stalling before delivery starts.')}
-      <div class="grid2">
-        <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
-        <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
+    {dqsec(2, 'Started & in delivery', '25% · 50% · 75% — the concern here is completeness and internal consistency of the record.')}
+    <div class="grid2">
+      <div class="card"><div class="cardtitle">Field completeness ({delN} in delivery)</div>{completeness_rows()}</div>
+      <div class="card"><div class="cardtitle">Delivery quality score</div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px"><div class="score" style="color:{'#2E7D5B' if score>=80 else '#E0A21E' if score>=60 else '#C0453F'}">{score}%</div><div class="muted">{passN} of {delN} pass every check</div></div>
+        <div class="cardnote" style="margin-top:14px"><strong>What this says:</strong> a request passes when it has objectives, a lead, a target date, a description, a modality and a programme offer — and its completion target is not before its start.</div>
       </div>
-      <div class="grid3 mt16">
-        <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#CD6A2E', '#F6E9DE', label_w=150)}</div>
-        <div class="card"><div class="cardtitle">Unassigned, by thematic area</div>{barlist(unassigned_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
-        <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
-      </div>
-      <div class="grid2 mt16">
-        <div class="card"><div class="cardtitle">Ready to advance</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#2E7D5B">{len(ready)}</div><div class="muted">of {len(at25)} requests at 25% have objectives, a lead and a target date</div></div></div>
-        <div class="card"><div class="cardtitle">Setup contradictions</div>{checkitems([(len(no_lead), 'Past assignment, but no TA lead', '0% or 25% means a lead should already be assigned', '#C0453F')])}</div>
-      </div>
-      <div class="card mt16"><div class="cardtitle">Stage transitions (days) — coming soon</div>
-        <div class="tcards">{''.join(f'<div class="tcard"><div class="tcardlabel">{l}</div><div class="tcardsub">{s}</div></div>' for l,s in [('Unassigned → 0%','days to assign a TA lead'),('0% → 25%','days to agree scope with the CO'),('25% → 50%','days to formally start delivery')])}</div>
-      </div>
-      {req_table('Most stalled setup requests', stalled_table_rows, 'Days stalled', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days stalled'])}
+    </div>
+    <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
+    <div class="grid2 mt16">
+      <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
+      <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
     </div>
 
-    <!-- delivery -->
-    <div class="subpanel-dq" id="deliv" style="display:none">
-      {panelhead('Started & in delivery', '50%+ — the concern here is completeness and internal consistency of the record.')}
-      <div class="grid2">
-        <div class="card"><div class="cardtitle">Field completeness ({delN} in delivery)</div>{completeness_rows()}</div>
-        <div class="card"><div class="cardtitle">Delivery quality score</div>
-          <div style="display:flex;align-items:baseline;gap:12px;margin:6px 0 4px"><div class="score" style="color:{'#2E7D5B' if score>=80 else '#E0A21E' if score>=60 else '#C0453F'}">{score}%</div><div class="muted">{passN} of {delN} pass every check</div></div>
-          <div class="cardnote" style="margin-top:14px"><strong>What this says:</strong> a request passes when it has objectives, a lead, a target date, a description, a modality and a programme offer — and its completion target is not before its start.</div>
-        </div>
-      </div>
-      <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
-      <div class="grid2 mt16">
-        <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
-        <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
-      </div>
-      {req_table('Requests needing cleanup', flagRecords[:14], 'Flag', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Flag'])}
+    {dqsec(3, 'Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
+    <div class="grid3">
+      {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
+      <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(dq_ob, label_w=92)}</div></div>
+      <div class="minicard"><div class="cardtitle">At risk (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
     </div>
+    <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
 
-    <!-- closure -->
-    <div class="subpanel-dq" id="close" style="display:none">
-      {panelhead('Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
-      <div class="grid3">
-        {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
-        <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(dq_ob, label_w=92)}</div></div>
-        <div class="minicard"><div class="cardtitle">At risk (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
-      </div>
-      <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
-      {req_table('Most overdue requests', dq_overdue[:14], 'Days over', '#C0453F', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Days over'])}
-      {req_table('Completed / discontinued but not closed', not_closed[:14], 'Outcome', '#E0A21E', cols=['Case','Country','Description','Thematic area','Exp. completion','Status','State','TA lead','Outcome'])}
-    </div>
+    {dqsec(4, 'All requests — filter and browse', 'One table for the whole lifecycle. Switch between received & in review, overdue, and completed.')}
+    <div class="dqtogs"><button class="dtoggle dqtog on" data-dqt="recv" onclick="showDqt('recv')">Received &amp; in review <b>{len(setupSet)}</b></button><button class="dtoggle dqtog" data-dqt="over" onclick="showDqt('over')">Overdue <b>{len(dq_overdue)}</b></button><button class="dtoggle dqtog" data-dqt="done" onclick="showDqt('done')">Completed <b>{len(completedC)}</b></button></div>
+    <div class="dqtblbox" data-dqt="recv">{recv_tbl}</div>
+    <div class="dqtblbox" data-dqt="over" style="display:none">{over_tbl}</div>
+    <div class="dqtblbox" data-dqt="done" style="display:none">{done_tbl}</div>
   </div>
 
 </div>
@@ -1612,6 +1624,12 @@ function showTbl(id){{
   for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-tbl')===id ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.dtoggle');
   for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-tbl')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
+}}
+function showDqt(id){{
+  var bs=document.querySelectorAll('.dqtblbox');
+  for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-dqt')===id ? 'block' : 'none'; }}
+  var ts=document.querySelectorAll('.dqtog');
+  for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-dqt')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
 }}
 function showInv(m){{
   var ps=document.querySelectorAll('.invpane');
