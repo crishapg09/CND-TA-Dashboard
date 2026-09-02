@@ -824,6 +824,11 @@ def render_work(rows):
     team_people = [(nm, v) for nm, v in inv.items() if v['team']]
     team_totals = [v['lead'] + v['collab'] for _, v in team_people]
     pmax_t = max(team_totals, default=1) or 1
+    team_involved = len(team_people)
+    n_mostly = sum(1 for _, v in team_people if v['collab'] > v['lead'])
+    n_collab_only = sum(1 for _, v in team_people if v['lead'] == 0 and v['collab'] > 0)
+    n_lead_only = sum(1 for _, v in team_people if v['collab'] == 0)
+    n_both = team_involved - n_collab_only - n_lead_only
 
     def _inv_seg(l, cl, denom, cl_color=COLLAB_C):
         seg = ''
@@ -850,13 +855,13 @@ def render_work(rows):
     lead_rows = ''.join(_inv_row(nm, v, False)
                         for nm, v in sorted((tp for tp in team_people if tp[1]['lead'] > 0), key=lambda kv: (-kv[1]['lead'], kv[0])))
 
-    # role split by thematic area (all collaboration, within + outside)
+    # role split by thematic area (nutrition-team collaboration only; external excluded)
     area_inv = defaultdict(lambda: [0, 0])
     for c in rows:
         a = c['area']
         if c['lead']:
             area_inv[a][0] += 1
-        area_inv[a][1] += len(c.get('collab', []))
+        area_inv[a][1] += sum(1 for p in c.get('collab', []) if p in by_name)
     amax = max((l + cl for l, cl in area_inv.values()), default=1) or 1
     area_rows_html = ''
     for a, (l, cl) in sorted(area_inv.items(), key=lambda kv: -(kv[1][0] + kv[1][1])):
@@ -872,10 +877,10 @@ def render_work(rows):
                   f'<div class="lg"><span class="lgdot" style="background:{COLLAB_C}"></span>Collaborator</div></div>')
     inv_stats = (
         '<div class="loadstat">'
-        f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Total assignments</div><div class="loadval" style="color:#0B6FA4">{tot_inv}</div><div class="loadsub" style="color:#7FA6BE">every person attached to a request · {tot_lead} as lead + {tot_collab} as collaborator</div></div>'
-        f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Within-team collaboration</div><div class="loadval" style="color:#2E7D5B">{collab_within}</div><div class="loadsub" style="color:#7FB49C">collaborator assignments among nutrition colleagues · {round(100*collab_within/cdenom)}% of collaboration</div></div>'
-        f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Cross-sectoral collaboration</div><div class="loadval" style="color:#B0602C">{collab_outside}</div><div class="loadsub" style="color:#C9A66B">collaborator assignments from other sectors, CO / RO · {round(100*collab_outside/cdenom)}% of collaboration</div></div>'
-        f'<div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">…by how many people</div><div class="loadval" style="color:#C0453F">{ext_ppl} <span style="font-size:14px;font-weight:600;color:#C79490">people</span></div><div class="loadsub" style="color:#C79490">distinct colleagues behind those {collab_outside} cross-sectoral assignments</div></div>'
+        f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Nutrition staff involved</div><div class="loadval" style="color:#0B6FA4">{team_involved}</div><div class="loadsub" style="color:#7FA6BE">{n_lead_only} lead only · {n_both} lead + collaborate · {n_collab_only} collaborate only</div></div>'
+        f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Mostly collaborators</div><div class="loadval" style="color:#2E7D5B">{n_mostly}</div><div class="loadsub" style="color:#7FB49C">nutrition staff who collaborate more than they lead</div></div>'
+        f'<div class="loadbox" style="background:#EAF3F0;border:1px solid #CDE3DA"><div class="loadlabel" style="color:#2C6E58">Collaboration inside the team</div><div class="loadval" style="color:#2E7D5B">{collab_within}</div><div class="loadsub" style="color:#7FB49C">times a nutrition colleague collaborates on a request</div></div>'
+        f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Collaboration from outside</div><div class="loadval" style="color:#B0602C">{collab_outside}</div><div class="loadsub" style="color:#C9A66B">from {ext_ppl} people in other sectors, CO / RO · mentioned only, not in the charts</div></div>'
         '</div>')
 
     # ----- busiest leads: status bar + collaborator extension -----
@@ -932,7 +937,7 @@ def render_work(rows):
       </div>
       <div class="card mt16">
         <div class="cardtitle">The work behind the work — lead &amp; collaborator involvement</div>
-        <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. Each person attached to a request — as lead or collaborator — is one <b>assignment</b>; counting only leads hides the collaborator assignments. Those split into work <b>among nutrition colleagues</b> and <b>cross-sectoral</b> support from people in other sectors, Country and Regional Offices. The last card counts the <b>people</b> behind that cross-sectoral work, not the assignments.</div>
+        <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. This view focuses on the <b>nutrition team</b>: who leads, who is <b>mostly a collaborator</b>, and how much collaboration happens <b>inside the team</b>. Support from other sectors, Country and Regional Offices is shown as a <b>mention</b> (a headcount and its collaborations) but is <b>not counted in the charts</b> below.</div>
         {inv_stats}
         <div class="divider"></div>
         <div class="cardtitle">Nutrition team workload — lead &amp; collaborator, per person</div>
@@ -944,7 +949,7 @@ def render_work(rows):
       </div>
       <div class="card mt16">
         <div class="cardtitle">Role split by thematic area — how much delivery is collaboration</div>
-        <div class="invcap">Per area: lead assignments + collaborator assignments on those requests. The % is the collaborator share.</div>
+        <div class="invcap">Per area: lead assignments + collaborations by nutrition colleagues (cross-sectoral support is excluded here). The % is the collaborator share.</div>
         {inv_legend}
         {area_rows_html}
       </div>
