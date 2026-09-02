@@ -29,7 +29,9 @@ export const INITIAL_FILTERS: FilterState = {
 };
 
 export function matchesFilters(c: TACase, s: FilterState): boolean {
-  if (s.type !== 'All' && c.type !== s.type) return false;
+  // The export labels big-ticket work "Big Ticket Item" and the rest "Regular";
+  // match big-ticket by prefix so the filter survives source wording changes.
+  if (s.type !== 'All' && (s.type === 'Big Ticket' ? !c.type.startsWith('Big Ticket') : c.type !== s.type)) return false;
   if (s.regions.length && !s.regions.includes(c.region)) return false;
   if (s.practice !== 'All' && c.practice !== s.practice) return false;
   if (s.office !== 'All' && c.office !== s.office) return false;
@@ -44,7 +46,7 @@ export interface KPI { label: string; value: string; sub: string; accent: string
 export interface StatusChip { label: string; dot: string; on: boolean; bg: string; fg: string; bd: string; }
 export interface ToggleButton { label: string; on: boolean; bg: string; fg: string; bd?: string; }
 export interface StackSeg { w: number; color: string; }
-export interface StackedRow { label: string; n: number; barPct: number; segs: StackSeg[]; leads?: number; }
+export interface StackedRow { label: string; n: number; barPct: number; segs: StackSeg[]; leads?: number; sub?: string; }
 export interface MonthBar { label: string; in: number; done: number; inH: number; doneH: number; hasNote: boolean; }
 export interface BucketRow { label: string; n: number; color: string; pct: number; }
 export interface LegendItem { label: string; color: string; }
@@ -182,7 +184,7 @@ export function computeDashboard(
     const on = state.quarters.includes(v);
     return { label: v, on, bg: on ? '#0B6FA4' : '#fff', fg: on ? '#fff' : '#43586B', bd: on ? '#0B6FA4' : '#D5DEE6' };
   });
-  const typeBtns: ToggleButton[] = ['All', 'Big Ticket', 'Routine'].map((v) => {
+  const typeBtns: ToggleButton[] = ['All', 'Big Ticket', 'Regular'].map((v) => {
     const on = state.type === v;
     return { label: v, on, bg: on ? '#0B6FA4' : 'transparent', fg: on ? '#fff' : '#5B7186' };
   });
@@ -212,7 +214,9 @@ export function computeDashboard(
   const staffBars: StackedRow[] = staffGrp.map((r) => {
     const rowCases = F.filter((c) => c.lead === r.label);
     const segs = STATUS_ORDER.map((s) => ({ w: r.n ? (rowCases.filter((c) => c.status === s).length / r.n) * 100 : 0, color: STATUS_COLORS[s] })).filter((seg) => seg.w > 0);
-    return { label: r.label, n: r.n, barPct: Math.round((r.n / staffMax) * 100), segs };
+    // thematic area from the staff roster join (see data/cases.ts), shown under the name
+    const sub = rowCases[0]?.leadArea || '';
+    return { label: r.label, n: r.n, barPct: Math.round((r.n / staffMax) * 100), segs, sub };
   });
   const staffLegend: LegendItem[] = STATUS_ORDER.map((s) => ({ label: s, color: STATUS_COLORS[s] }));
 
@@ -319,7 +323,7 @@ export function computeDashboard(
 
   const kpis: KPI[] = [
     { label: 'Total requests', value: fmtNum(total), sub: 'in current filter', accent: '#0B6FA4', color: '#0F2238' },
-    { label: 'Received last 30 days', value: fmtNum(recentSet.length), sub: 'new since 22 Jun 2026', accent: '#1CABE2', color: '#0F2238' },
+    { label: 'Received last 30 days', value: fmtNum(recentSet.length), sub: 'new since 3 Aug 2026', accent: '#1CABE2', color: '#0F2238' },
     { label: 'Active & on track', value: fmtNum(onTrack), sub: 'in progress, not overdue', accent: '#3E9CD6', color: '#3E9CD6' },
     { label: 'Completed vs. target', value: dueByToday.length ? pct(doneByTarget, dueByToday.length) + '%' : '—', sub: 'of ' + fmtNum(dueByToday.length) + ' due by today, ' + fmtNum(doneByTarget) + ' at 100%', accent: '#2E7D5B', color: '#2E7D5B' },
     { label: 'Active on target', value: activeSet.length ? pct(onTrack, activeSet.length) + '%' : '—', sub: fmtNum(overdueSet.length) + ' overdue — update date or close', accent: '#3E9CD6', color: '#0F2238' },

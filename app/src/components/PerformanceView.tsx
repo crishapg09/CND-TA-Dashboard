@@ -83,8 +83,8 @@ function StackTrack({ row, height, track = '#EEF2F6' }: { row: StackedRow; heigh
   );
 }
 
-function SolidWorkloadCard({ title, rows, labelW }: { title: string; rows: StackedRow[]; labelW: number }) {
-  const scroll = labelW >= 150;
+function SolidWorkloadCard({ title, rows, labelW, expand = false }: { title: string; rows: StackedRow[]; labelW: number; expand?: boolean }) {
+  const scroll = labelW >= 150 && !expand;
   const body = (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: `${labelW}px 1fr 38px 74px`, gap: 10, marginBottom: 9, fontSize: 10, letterSpacing: '.05em', textTransform: 'uppercase', color: '#9AA7B2', fontWeight: 700 }}>
@@ -93,7 +93,7 @@ function SolidWorkloadCard({ title, rows, labelW }: { title: string; rows: Stack
       <div style={scroll ? scrollBox : undefined}>
         {rows.map((row) => (
           <div key={row.label} style={{ display: 'grid', gridTemplateColumns: `${labelW}px 1fr 38px 74px`, alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <div style={{ fontSize: 12, color: '#43586B', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</div>
+            <div style={{ fontSize: 12, color: '#43586B', fontWeight: 600, ...(expand ? { whiteSpace: 'normal', lineHeight: 1.25 } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>{row.label}</div>
             <div style={{ height: 10, background: '#EEF2F6', borderRadius: 5 }}><div style={{ height: '100%', width: `${row.barPct}%`, background: '#0B6FA4', borderRadius: 5 }} /></div>
             <div style={{ fontSize: 12.5, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.n}</div>
             <div style={{ fontSize: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#0B6FA4', fontWeight: 700 }}>{row.leads}</div>
@@ -103,7 +103,7 @@ function SolidWorkloadCard({ title, rows, labelW }: { title: string; rows: Stack
     </>
   );
   return (
-    <div style={{ background: '#fff', border: '1px solid #E3E9EF', borderRadius: 10, padding: '20px 22px', height: 238, boxSizing: 'border-box' }}>
+    <div style={{ background: '#fff', border: '1px solid #E3E9EF', borderRadius: 10, padding: '20px 22px', ...(expand ? { minHeight: 238 } : { height: 238 }), boxSizing: 'border-box' }}>
       <div style={{ ...bigCardTitle, marginBottom: 16 }}>{title}</div>
       {body}
     </div>
@@ -223,7 +223,7 @@ export function PerformanceView({ d }: { d: Dashboard }) {
 
       {/* received last 30 days */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(230px, 100%), 1fr))', gap: 16, marginTop: 16, alignItems: 'start' }}>
-        <Hero bg="#EAF2F8" border="#CFE0EE" labelColor="#0B6FA4" value={d.recent} valueColor="#0B6FA4" label="Received in last 30 days" body="new TA requests opened between 22 Jun and 22 Jul 2026." bodyColor="#3E6178" />
+        <Hero bg="#EAF2F8" border="#CFE0EE" labelColor="#0B6FA4" value={d.recent} valueColor="#0B6FA4" label="Received in last 30 days" body="new TA requests opened between 3 Aug and 2 Sep 2026." bodyColor="#3E6178" />
         <div style={{ background: '#fff', border: '1px solid #E3E9EF', borderRadius: 10, padding: '20px 22px', height: 216, boxSizing: 'border-box' }}>
           <div style={cardTitle}>New by region</div>
           <BarList rows={d.recentByRegion} labelWidth={64} trackBg="#E9F0F6" />
@@ -325,7 +325,7 @@ export function PerformanceView({ d }: { d: Dashboard }) {
         rows={d.overdueTableFinal}
         metricLabel="Days over"
         daysColor="#C0453F"
-        footer="Days over = today (22 Jul 2026) − the request’s Expected Completion Date, counting only active requests (implementation status below 100%) whose target date has already passed."
+        footer="Days over = today (2 Sep 2026) − the request’s Expected Completion Date, counting only active requests (implementation status below 100%) whose target date has already passed."
       />
 
       </>
@@ -337,7 +337,7 @@ export function PerformanceView({ d }: { d: Dashboard }) {
       <SectionHeading n={4} title="Workload: practices, regions & staff" bg="#16385C" />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 16, alignItems: 'start' }}>
         <SolidWorkloadCard title="Requests by region" rows={d.byRegion} labelW={80} />
-        <SolidWorkloadCard title="Requests by practice" rows={d.byPractice} labelW={150} />
+        <SolidWorkloadCard title="Requests by practice" rows={d.byPractice} labelW={200} expand />
       </div>
 
       {/* workload spread */}
@@ -390,7 +390,10 @@ export function PerformanceView({ d }: { d: Dashboard }) {
         <div style={{ columnCount: 2, columnGap: 40, maxHeight: 340, overflowY: 'auto', paddingRight: 6 }}>
           {d.staffBars.map((row) => (
             <div key={row.label} style={{ display: 'grid', gridTemplateColumns: '185px 1fr 34px', alignItems: 'center', gap: 10, breakInside: 'avoid', marginBottom: 11 }}>
-              <div style={{ fontSize: 12, color: '#43586B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</div>
+              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 12, color: '#43586B', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</div>
+                {row.sub && <div style={{ fontSize: 10.5, color: '#9AA7B2', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.sub}</div>}
+              </div>
               <StackTrack row={row} height={11} />
               <div style={{ fontSize: 12, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.n}</div>
             </div>

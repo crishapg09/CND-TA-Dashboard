@@ -34,8 +34,8 @@ EXPECTED_HEADER = (
     'Office/Division', 'Region', 'Requested For', 'Requested by', 'Short description',
     'Description', 'Objectives', 'Language', 'Modality',
     'Global Practice and Cross Sectoral Teams', 'Primary Programme Offer',
-    'Assigned to', 'Implementation Status', 'Created', 'Opened', 'Updated',
-    'Resolved', 'Closed', 'Resolution code', 'State',
+    'Assigned to', 'Collaborators', 'Implementation Status', 'Created', 'Opened', 'Updated',
+    'Resolved', 'Closed', 'Resolution code', 'State', 'Details/Description',
 )
 
 # Requests with these resolution codes are administrative non-work — voided,
@@ -50,9 +50,11 @@ EXCLUDED_RESOLUTIONS = {
 # Column indices (0-based) used when building each record.
 C_ID, C_TYPE, C_XS, C_XC, C_OFFICE, C_REGION, C_REQFOR = 0, 1, 2, 3, 4, 5, 6
 C_SHORT, C_DESC, C_OBJ, C_MODALITY = 8, 9, 10, 12
-C_PRACTICE, C_OFFER, C_LEAD, C_STATUS = 13, 14, 15, 16
-C_CREATED, C_OPENED, C_UPDATED, C_RESOLVED, C_CLOSED = 17, 18, 19, 20, 21
-C_RESOLUTION, C_STATE = 22, 23  # State is captured in the export but unused here
+C_PRACTICE, C_OFFER, C_LEAD = 13, 14, 15
+C_COLLAB, C_STATUS = 16, 17           # Collaborators: comma-separated staff names
+C_CREATED, C_OPENED, C_UPDATED, C_RESOLVED, C_CLOSED = 18, 19, 20, 21, 22
+C_RESOLUTION, C_STATE = 23, 24  # State is captured in the export but unused here
+C_DETAILS = 25  # rich-text "Details/Description" appended to the export
 
 EPOCH = datetime.datetime(1899, 12, 30)  # Excel serial-date origin
 
@@ -68,6 +70,35 @@ def serial(v):
 
 def s(v):
     return '' if v is None else str(v)
+
+
+def _has_details(v):
+    """1 if the rich-text Details/Description has real text once HTML is stripped."""
+    if v is None:
+        return 0
+    t = re.sub(r'<[^>]+>', ' ', str(v)).replace('\xa0', ' ')
+    t = re.sub(r'&[a-zA-Z]+;|&#\d+;', ' ', t)
+    return 1 if t.strip() else 0
+
+
+def _collab(v, lead):
+    """Comma-separated collaborator names -> ordered, de-duped list.
+    Blank entries and the request's own lead are dropped so a person is never
+    counted as both lead and collaborator on the same request."""
+    if v is None:
+        return []
+    out, seen = [], set()
+    for name in str(v).split(','):
+        name = name.strip()
+        key = name.lower()
+        # skip blanks, the request's own lead, and non-human system/test accounts
+        # (the "DEV-…" service account and "System Administrator" that appear as
+        # bulk collaborators)
+        if (name and name != lead and not name.startswith('DEV-')
+                and name != 'System Administrator' and key not in seen):
+            seen.add(key)
+            out.append(name)
+    return out
 
 
 def load_rows(path):
@@ -95,6 +126,8 @@ def build(r):
         'region': s(r[C_REGION]), 'office': s(r[C_OFFICE]),
         'practice': s(r[C_PRACTICE]), 'offer': s(r[C_OFFER]), 'modality': s(r[C_MODALITY]),
         'status': s(r[C_STATUS]), 'lead': s(r[C_LEAD]),
+        # Collaborators: comma-separated names -> de-duped list, excluding the lead
+        'collab': _collab(r[C_COLLAB], s(r[C_LEAD])),
         'reqFor': s(r[C_REQFOR]), 'desc': s(r[C_SHORT]),
         # long Description, falling back to the short description when blank
         'full': s(r[C_DESC]) if r[C_DESC] else s(r[C_SHORT]),
@@ -102,6 +135,7 @@ def build(r):
         'cr': serial(r[C_CREATED]), 'op': serial(r[C_OPENED]), 'up': serial(r[C_UPDATED]),
         'rs': serial(r[C_RESOLVED]), 'cl': serial(r[C_CLOSED]),
         'hd': 1 if r[C_DESC] else 0, 'ho': 1 if r[C_OBJ] else 0,
+        'hdd': _has_details(r[C_DETAILS]),
     }
 
 
