@@ -49,6 +49,10 @@ def fmtdate(serial):
     d = EPOCH + datetime.timedelta(days=serial)
     return d.strftime('%d %b %Y')
 def pct(a, b): return round(100 * a / b) if b else 0
+# Request type: the export labels big-ticket work "Big Ticket Item" and the rest
+# "Regular" (formerly "Routine"). Detect big-ticket by prefix so wording changes
+# in the source don't silently zero the split.
+def is_big(c): return str(c.get('type') or '').startswith('Big Ticket')
 def chip(status):
     return SC[status], ('#fff' if status in DARK else '#1F3346')
 
@@ -189,8 +193,8 @@ def _det_row(i, c):
     assigned = (f'<span class="dval">{esc(c["lead"])}</span>' if c['lead']
                 else '<span class="dwarn">&#9888; unassigned</span>')
     typ = c['type'] or '—'
-    typlabel = 'Big Ticket Item' if typ == 'Big Ticket' else typ
-    typcls = 'big' if typ == 'Big Ticket' else 'routine'
+    typlabel = typ or '—'
+    typcls = 'big' if str(typ or '').startswith('Big Ticket') else 'routine'
     st = c['status']
     stcol = SC.get(st, '#9AA7B2')
     stlabel = st
@@ -238,7 +242,7 @@ def detailed_table(sets):
 # PERFORMANCE
 # ======================================================================
 # big-ticket vs routine split (constant reference, whole portfolio)
-n_big = sum(1 for c in PERF if c.get('type') == 'Big Ticket')
+n_big = sum(1 for c in PERF if is_big(c))
 n_routine = len(PERF) - n_big
 
 def perf_kpi_strip(rows, noun, is_all):
@@ -263,27 +267,27 @@ def perf_kpi_strip(rows, noun, is_all):
                 f'<div class="kpival" style="color:{col}">{v}</div><div class="kpisub">{s}</div></div>')
 
     split_tile = (
-        '<div class="kpi" style="border-top:3px solid #B0602C"><div class="kpilabel">Big ticket vs. routine</div>'
+        '<div class="kpi" style="border-top:3px solid #B0602C"><div class="kpilabel">Big ticket vs. regular</div>'
         '<div class="kpisplit">'
         f'<div><div class="kpival2" style="color:#B0602C">{n_big}</div><div class="kpisub">{pct(n_big, len(PERF))}% big ticket</div></div>'
         '<div class="kpisplitdiv"></div>'
-        f'<div><div class="kpival2" style="color:#0B5A8A">{n_routine}</div><div class="kpisub">{pct(n_routine, len(PERF))}% routine</div></div>'
+        f'<div><div class="kpival2" style="color:#0B5A8A">{n_routine}</div><div class="kpisub">{pct(n_routine, len(PERF))}% regular</div></div>'
         '</div></div>')
 
     # Total requests, then the Big-ticket/Routine split, then the rest
     tiles = _tile(*cards[0]) + split_tile + ''.join(_tile(*c) for c in cards[1:])
     return f'<div class="kpistrip">{tiles}</div>'
 
-_big_rows = [c for c in PERF if c.get('type') == 'Big Ticket']
-_rtn_rows = [c for c in PERF if c.get('type') != 'Big Ticket']
+_big_rows = [c for c in PERF if is_big(c)]
+_rtn_rows = [c for c in PERF if not is_big(c)]
 perf_kpis = (
     '<div class="kpifilter"><span class="kpifl">Filter</span>'
     f'<button class="kpibtn on" data-kf="all" onclick="showKpiFilter(\'all\')">All <b>{len(PERF)}</b></button>'
     f'<button class="kpibtn" data-kf="big" onclick="showKpiFilter(\'big\')">Big ticket <b>{n_big}</b></button>'
-    f'<button class="kpibtn" data-kf="routine" onclick="showKpiFilter(\'routine\')">Routine <b>{n_routine}</b></button></div>'
+    f'<button class="kpibtn" data-kf="routine" onclick="showKpiFilter(\'routine\')">Regular <b>{n_routine}</b></button></div>'
     '<div class="kpiwrap" data-kpi="all" style="display:block">' + perf_kpi_strip(PERF, 'all requests', True) + '</div>'
     '<div class="kpiwrap" data-kpi="big" style="display:none">' + perf_kpi_strip(_big_rows, 'big-ticket requests', False) + '</div>'
-    '<div class="kpiwrap" data-kpi="routine" style="display:none">' + perf_kpi_strip(_rtn_rows, 'routine requests', False) + '</div>'
+    '<div class="kpiwrap" data-kpi="routine" style="display:none">' + perf_kpi_strip(_rtn_rows, 'regular requests', False) + '</div>'
 )
 
 # received last 30 / on track / overdue / completed — by thematic area & by programme offer
@@ -968,8 +972,8 @@ def render_work(rows):
 
 
 # Pre-render the three Management subtabs for each filter state (all / big / routine)
-_flow_big = [c for c in flowcases if c.get('type') == 'Big Ticket']
-_flow_rtn = [c for c in flowcases if c.get('type') != 'Big Ticket']
+_flow_big = [c for c in flowcases if is_big(c)]
+_flow_rtn = [c for c in flowcases if not is_big(c)]
 mgmt_wrappers = ''
 for _v, _rows, _frows in [('all', PERF, flowcases), ('big', _big_rows, _flow_big), ('routine', _rtn_rows, _flow_rtn)]:
     _disp = 'block' if _v == 'all' else 'none'
@@ -994,7 +998,7 @@ def _ctop(counter):
 COUNTRY_DATA = {}
 for _office, rr in _ctry_groups.items():
     n = len(rr)
-    big = sum(1 for c in rr if c['type'] == 'Big Ticket')
+    big = sum(1 for c in rr if is_big(c))
     completed = sum(1 for c in rr if c['status'] == '100%')
     unassigned = sum(1 for c in rr if c['status'] == 'Unassigned')
     _act = [c for c in rr if c['status'] not in ('100%', 'Unassigned')]
@@ -1738,7 +1742,7 @@ function renderCountry(name){{
   var i, meta=document.getElementById('ctryMeta');
   if(meta){{ meta.innerHTML='<b>'+d.region+'</b> region &middot; <b>'+d.n+'</b> TA request'+(d.n===1?'':'s')+' &middot; <b>'+d.leads.length+'</b> TA lead'+(d.leads.length===1?'':'s'); }}
   var kpis='<div class="kpistrip">'
-    +_ck('Total requests',d.n,d.big+' big ticket &middot; '+d.routine+' routine','#0B6FA4','#0F2238')
+    +_ck('Total requests',d.n,d.big+' big ticket &middot; '+d.routine+' regular','#0B6FA4','#0F2238')
     +_ck('On track',d.onTrack,'in progress, on time','#3E9CD6','#0B6FA4')
     +_ck('Overdue',d.overdue,'past target date','#C0453F','#C0453F')
     +_ck('Completed',d.completed,'reached 100%','#2E7D5B','#2E7D5B')
@@ -1753,11 +1757,11 @@ function renderCountry(name){{
   var areasCard='<div class="card"><div class="cardtitle">TA requests by thematic area and assigned lead staff</div>'+_areaTree(d.areasTree)+'</div>';
   var compCard='<div class="card"><div class="cardtitle">Portfolio composition</div>'
     +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Big ticket</div><div class="track" style="height:12px;background:#F5E6D6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.big/d.n:0).toFixed(1)+'%;background:#B0602C;border-radius:6px"></div></div><div class="cpct">'+d.big+'</div></div>'
-    +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Routine</div><div class="track" style="height:12px;background:#E4EEF6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.routine/d.n:0).toFixed(1)+'%;background:#0B5A8A;border-radius:6px"></div></div><div class="cpct">'+d.routine+'</div></div>'
+    +'<div class="crow" style="grid-template-columns:150px 1fr 44px"><div class="clabel">Regular</div><div class="track" style="height:12px;background:#E4EEF6;border-radius:6px"><div style="height:100%;width:'+(d.n?100*d.routine/d.n:0).toFixed(1)+'%;background:#0B5A8A;border-radius:6px"></div></div><div class="cpct">'+d.routine+'</div></div>'
     +'</div>';
   var reqs='';
   for(i=0;i<d.reqs.length;i++){{ var r=d.reqs[i];
-    var chips='<span class="creqchip '+(r.type==='Big Ticket'?'big':'')+'">'+_cesc(r.type)+'</span>'
+    var chips='<span class="creqchip '+(r.type&&r.type.indexOf('Big Ticket')===0?'big':'')+'">'+_cesc(r.type)+'</span>'
       +'<span class="creqchip area">'+_cesc(r.area)+'</span>'
       +'<span class="creqchip">'+_cesc(r.offer)+'</span>';
     reqs+='<div class="creq">'

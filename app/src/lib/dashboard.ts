@@ -29,7 +29,9 @@ export const INITIAL_FILTERS: FilterState = {
 };
 
 export function matchesFilters(c: TACase, s: FilterState): boolean {
-  if (s.type !== 'All' && c.type !== s.type) return false;
+  // The export labels big-ticket work "Big Ticket Item" and the rest "Regular";
+  // match big-ticket by prefix so the filter survives source wording changes.
+  if (s.type !== 'All' && (s.type === 'Big Ticket' ? !c.type.startsWith('Big Ticket') : c.type !== s.type)) return false;
   if (s.regions.length && !s.regions.includes(c.region)) return false;
   if (s.practice !== 'All' && c.practice !== s.practice) return false;
   if (s.office !== 'All' && c.office !== s.office) return false;
@@ -182,7 +184,7 @@ export function computeDashboard(
     const on = state.quarters.includes(v);
     return { label: v, on, bg: on ? '#0B6FA4' : '#fff', fg: on ? '#fff' : '#43586B', bd: on ? '#0B6FA4' : '#D5DEE6' };
   });
-  const typeBtns: ToggleButton[] = ['All', 'Big Ticket', 'Routine'].map((v) => {
+  const typeBtns: ToggleButton[] = ['All', 'Big Ticket', 'Regular'].map((v) => {
     const on = state.type === v;
     return { label: v, on, bg: on ? '#0B6FA4' : 'transparent', fg: on ? '#fff' : '#5B7186' };
   });
