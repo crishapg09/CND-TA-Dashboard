@@ -485,6 +485,8 @@ aging = [('0–14 days', sum(1 for c in setupSet if stall_days(c) <= 14), '#3E9C
 stalled_by_area = [(k, len(v)) for k, v in groupby_area(stalledSetup)]
 unassigned_by_area = [(k, len(v)) for k, v in groupby_area([c for c in setupSet if c['status'] == 'Unassigned'])]
 zero_by_area = [(k, len(v)) for k, v in groupby_area([c for c in setupSet if c['status'] == '0%'])]
+zeroReq = [c for c in setupSet if c['status'] == '0%']
+ready0 = [c for c in zeroReq if c['hd'] and c['lead'] and c['xc'] is not None]
 stalled_table_rows = sorted(stalledSetup, key=lambda c: -stall_days(c))[:12]
 for c in stalled_table_rows: c['_m'] = str(stall_days(c)) + 'd'
 at25 = [c for c in setupSet if c['status'] == '25%']
@@ -1561,6 +1563,11 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div class="grid2 mt16">
       <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#CD6A2E', '#F6E9DE', label_w=150)}</div>
       <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
+    </div>
+    <div class="card mt16" style="background:#EEF7F2;border:1px solid #CDE7DB">
+      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#2C6E58;font-weight:700">Ready to advance</div>
+      <div style="margin:6px 0 4px"><span style="font-size:34px;font-weight:700;color:#2E7D5B;letter-spacing:-.02em;font-variant-numeric:tabular-nums">{len(ready0)}</span><span style="font-size:16px;color:#7FB49C;font-weight:600"> / {len(zeroReq)}</span></div>
+      <div class="muted">requests at 0% already have a description, a lead and a target date — ready to move to 25%.</div>
     </div>
 
     {dqsec(2, 'Started & in delivery', '25% · 50% · 75% — the concern here is completeness and internal consistency of the record.')}
