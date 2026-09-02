@@ -315,9 +315,9 @@ _WARN_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="#C0453F" stroke-width
              'a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>')
 
 def overdue_stage_severity(rows):
-    """Combined overdue view: for each implementation stage group (Setup 0–25% vs
-    Delivery 50–75%) a segmented bar split by how far past the target date, with an
-    insight panel. Merges the old severity + by-stage bars into one."""
+    """Combined overdue view: for each implementation stage group (Setup =
+    Unassigned + 0% vs Delivery = 25% + 50% + 75%) a segmented bar split by how far
+    past the target date, with an insight panel."""
     if not rows:
         return ''
     BANDS = [('1–30 days', '#E3A21C'), ('31–60 days', '#E0701E'), ('>60 days', '#C63D2E')]
@@ -335,7 +335,7 @@ def overdue_stage_severity(rows):
                 cc[b] += counts.get(s, [0, 0, 0])[b]
         return cc, sum(cc)
     col_tot = [sum(counts.get(s, [0, 0, 0])[b] for s in counts) for b in range(3)]
-    ZONES = [('In setup', _GEAR_SVG, ['0%', '25%']), ('In delivery', _TRUCK_SVG, ['50%', '75%'])]
+    ZONES = [('In setup', _GEAR_SVG, ['Unassigned', '0%']), ('In delivery', _TRUCK_SVG, ['25%', '50%', '75%'])]
 
     body = ''
     for zlabel, ico, stages in ZONES:
@@ -357,7 +357,7 @@ def overdue_stage_severity(rows):
                  f'<div><div class="osb-track" style="width:{100*ztot/tot:.1f}%">'
                  f'<div class="osb-bar">{segs}</div><div class="osb-braces">{braces}</div></div></div></div>')
 
-    setup_cc, setup_tot = group_cells(['0%', '25%'])
+    setup_cc, setup_tot = group_cells(['Unassigned', '0%'])
     setup_pct = round(100 * setup_tot / tot)
     over60 = col_tot[2]
     pct60 = round(100 * over60 / tot)
