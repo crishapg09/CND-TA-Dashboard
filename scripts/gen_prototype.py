@@ -1541,7 +1541,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     {dqsec(1, 'Received & in review', 'Unassigned · 0% — the concern here is stalling before delivery starts.')}
     <div class="grid2">
       <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
-      <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
+      <div class="card"><div class="cardtitle" style="margin-bottom:4px">Time in setup</div><div class="muted" style="margin-bottom:14px">Days since a request was received (Unassigned) or last updated (0%). Counted as <b>stalled</b> after 14 days while Unassigned, 30 days once at 0%.</div>{bucket_bars(aging, label_w=110)}</div>
     </div>
     <div class="grid2 mt16">
       <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#CD6A2E', '#F6E9DE', label_w=150)}</div>
