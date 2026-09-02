@@ -1585,9 +1585,16 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     </div>
 
     {dqsec(3, 'Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
-    <div class="grid2">
-      {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
-      <div class="minicard"><div class="cardtitle">Upcoming closure (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;align-items:start">
+      <div class="card" style="background:#FBF0EF;border:1px solid #F0D2CF">
+        <div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#B0453F;font-weight:700">Overdue</div>
+        <div style="font-size:44px;font-weight:700;color:#C0453F;line-height:1;margin:8px 0 6px;font-variant-numeric:tabular-nums">{len(dq_overdue)}</div>
+        <div style="font-size:12.5px;color:#8A5450">active requests past their expected completion date.</div>
+      </div>
+      <div class="card">
+        <div class="cardtitle" style="margin-bottom:8px">Upcoming closure (next 30 days)</div>
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div>
+      </div>
     </div>
     {overdue_sev_card}
     <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=270, pct=True)}</div>
