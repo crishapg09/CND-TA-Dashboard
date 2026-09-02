@@ -1588,8 +1588,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;align-items:start">
       <div class="card" style="background:#FBF0EF;border:1px solid #F0D2CF">
         <div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#B0453F;font-weight:700">Overdue</div>
-        <div style="font-size:44px;font-weight:700;color:#C0453F;line-height:1;margin:8px 0 6px;font-variant-numeric:tabular-nums">{len(dq_overdue)}</div>
-        <div style="font-size:12.5px;color:#8A5450">active requests past their expected completion date.</div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-top:8px"><div style="font-size:44px;font-weight:700;color:#C0453F;line-height:1;font-variant-numeric:tabular-nums">{len(dq_overdue)}</div><div style="font-size:12.5px;color:#8A5450">active requests past their expected completion date.</div></div>
       </div>
       <div class="card">
         <div class="cardtitle" style="margin-bottom:8px">Upcoming closure (next 30 days)</div>
