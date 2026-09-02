@@ -872,10 +872,10 @@ def render_work(rows):
                   f'<div class="lg"><span class="lgdot" style="background:{COLLAB_C}"></span>Collaborator</div></div>')
     inv_stats = (
         '<div class="loadstat">'
-        f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Total involvements</div><div class="loadval" style="color:#0B6FA4">{tot_inv}</div><div class="loadsub" style="color:#7FA6BE">{tot_lead} lead + {tot_collab} collaborator</div></div>'
-        f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Within-team collaboration</div><div class="loadval" style="color:#2E7D5B">{collab_within}</div><div class="loadsub" style="color:#7FB49C">{round(100*collab_within/cdenom)}% of collaboration · nutrition colleagues</div></div>'
-        f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Cross-sectoral collaboration</div><div class="loadval" style="color:#B0602C">{collab_outside}</div><div class="loadsub" style="color:#C9A66B">{round(100*collab_outside/cdenom)}% of collaboration · other sectors, CO, RO</div></div>'
-        f'<div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">Cross-sectoral collaborators</div><div class="loadval" style="color:#C0453F">{ext_ppl}</div><div class="loadsub" style="color:#C79490">colleagues from other sectors, CO or RO</div></div>'
+        f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Total assignments</div><div class="loadval" style="color:#0B6FA4">{tot_inv}</div><div class="loadsub" style="color:#7FA6BE">every person attached to a request · {tot_lead} as lead + {tot_collab} as collaborator</div></div>'
+        f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Within-team collaboration</div><div class="loadval" style="color:#2E7D5B">{collab_within}</div><div class="loadsub" style="color:#7FB49C">collaborator assignments among nutrition colleagues · {round(100*collab_within/cdenom)}% of collaboration</div></div>'
+        f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Cross-sectoral collaboration</div><div class="loadval" style="color:#B0602C">{collab_outside}</div><div class="loadsub" style="color:#C9A66B">collaborator assignments from other sectors, CO / RO · {round(100*collab_outside/cdenom)}% of collaboration</div></div>'
+        f'<div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">…by how many people</div><div class="loadval" style="color:#C0453F">{ext_ppl} <span style="font-size:14px;font-weight:600;color:#C79490">people</span></div><div class="loadsub" style="color:#C79490">distinct colleagues behind those {collab_outside} cross-sectoral assignments</div></div>'
         '</div>')
 
     # ----- busiest leads: status bar + collaborator extension -----
@@ -932,7 +932,7 @@ def render_work(rows):
       </div>
       <div class="card mt16">
         <div class="cardtitle">The work behind the work — lead &amp; collaborator involvement</div>
-        <div class="invcap" style="max-width:960px">Every request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also dedicate time. Counting only leads hides that effort. Collaboration splits into work <b>among nutrition colleagues</b> and <b>cross-sectoral</b> support from other sectors, Country and Regional Offices.</div>
+        <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. Each person attached to a request — as lead or collaborator — is one <b>assignment</b>; counting only leads hides the collaborator assignments. Those split into work <b>among nutrition colleagues</b> and <b>cross-sectoral</b> support from people in other sectors, Country and Regional Offices. The last card counts the <b>people</b> behind that cross-sectoral work, not the assignments.</div>
         {inv_stats}
         <div class="divider"></div>
         <div class="cardtitle">Nutrition team workload — lead &amp; collaborator, per person</div>
