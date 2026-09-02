@@ -1543,9 +1543,8 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
       <div class="card"><div class="cardtitle">Time in stage (aging)</div>{bucket_bars(aging, label_w=110)}</div>
     </div>
-    <div class="grid3 mt16">
+    <div class="grid2 mt16">
       <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#CD6A2E', '#F6E9DE', label_w=150)}</div>
-      <div class="card"><div class="cardtitle">Unassigned, by thematic area</div>{barlist(unassigned_by_area, '#E0A21E', '#F5EEDF', label_w=150)}</div>
       <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
     </div>
 
@@ -1567,7 +1566,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div class="grid3">
       {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
       <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(dq_ob, label_w=92)}</div></div>
-      <div class="minicard"><div class="cardtitle">At risk (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
+      <div class="minicard"><div class="cardtitle">Upcoming closure (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
     </div>
     <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
 
