@@ -800,7 +800,7 @@ def render_work(rows):
     load_min, load_max, load_avg = min(counts), max(counts), sum(counts) / len(counts)
     lmax = max(counts) or 1
     # ===== lead + collaborator involvement (team-aware) =====
-    LEAD_C, COLLAB_C, EXT_C = '#0B5A8A', '#5FB49C', '#E0A21E'
+    LEAD_C, COLLAB_C, EXT_C = '#0B5A8A', '#5FB49C', '#C08636'
     inv = {}
 
     def _touch(nm):
@@ -834,24 +834,28 @@ def render_work(rows):
     n_lead_only = sum(1 for _, v in team_people if v['collab'] == 0)
     n_both = team_involved - n_collab_only - n_lead_only
 
-    def _inv_seg(l, cl, denom, cl_color=COLLAB_C):
-        seg = ''
-        if l:
-            seg += f'<span style="width:{100*l/denom:.2f}%;background:{LEAD_C}"></span>'
-        if cl:
-            seg += f'<span style="width:{100*cl/denom:.2f}%;background:{cl_color}"></span>'
-        return seg
+    def _pl(n):
+        return '' if n == 1 else 's'
 
     def _inv_row(nm, v, both=True):
-        t = v['lead'] + v['collab']
+        lead, col = v['lead'], v['collab']
+        t = lead + col
+        tl = esc(f'{nm} — leads {lead} request{_pl(lead)}')
+        tc = esc(f'{nm} — collaborates on {col} request{_pl(col)}')
         if both:
-            w, seg = t, _inv_seg(v['lead'], v['collab'], pmax_t)
-            n, split = t, f'<div class="invsplit" style="color:{COLLAB_C}">{round(100*v["collab"]/t) if t else 0}%</div>'
+            w = t
+            inner = ''
+            if lead:
+                inner += f'<span title="{tl}" style="width:{100*lead/t:.2f}%;background:{LEAD_C}"></span>'
+            if col:
+                inner += f'<span title="{tc}" style="width:{100*col/t:.2f}%;background:{COLLAB_C}"></span>'
+            n, split = t, f'<div class="invsplit" style="color:{COLLAB_C}">{round(100*col/t) if t else 0}%</div>'
         else:
-            w, seg = v['lead'], _inv_seg(v['lead'], 0, pmax_t)
-            n, split = v['lead'], '<div class="invsplit" style="color:#B9C3CC">lead</div>'
+            w = lead
+            inner = f'<span title="{tl}" style="width:100%;background:{LEAD_C}"></span>' if lead else ''
+            n, split = lead, '<div class="invsplit" style="color:#B9C3CC">lead</div>'
         return (f'<div class="invrow"><div class="invlabel"><div class="invname">{esc(nm)}</div><div class="invarea">{esc(v["area"])}</div></div>'
-                f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px"><div class="bar" style="height:100%;width:{100*w/pmax_t:.1f}%;border-radius:6px">{seg}</div></div>'
+                f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px"><div class="bar" style="height:100%;width:{100*w/pmax_t:.1f}%;border-radius:6px">{inner}</div></div>'
                 f'<div class="invn">{n}</div>{split}</div>')
 
     both_rows = ''.join(_inv_row(nm, v, True)
@@ -859,57 +863,89 @@ def render_work(rows):
     lead_rows = ''.join(_inv_row(nm, v, False)
                         for nm, v in sorted((tp for tp in team_people if tp[1]['lead'] > 0), key=lambda kv: (-kv[1]['lead'], kv[0])))
 
-    # role split by thematic area (nutrition-team collaboration only; external excluded)
-    area_inv = defaultdict(lambda: [0, 0])
+    # role split by thematic area — lead + internal (nutrition) + external (cross-sectoral)
+    area_inv = defaultdict(lambda: [0, 0, 0])  # [lead, internal collab, external collab]
     for c in rows:
         a = c['area']
         if c['lead']:
             area_inv[a][0] += 1
-        area_inv[a][1] += sum(1 for p in c.get('collab', []) if p in by_name)
-    amax = max((l + cl for l, cl in area_inv.values()), default=1) or 1
-    area_rows_html = ''
-    for a, (l, cl) in sorted(area_inv.items(), key=lambda kv: -(kv[1][0] + kv[1][1])):
-        t = l + cl
-        pcol = round(100 * cl / t) if t else 0
-        area_rows_html += (f'<div class="invrow" style="grid-template-columns:230px 1fr 40px 62px">'
-                           f'<div class="invlabel"><div class="invname">{esc(a)}</div></div>'
-                           f'<div class="track" style="height:13px;background:#EEF2F6;border-radius:6px"><div class="bar" style="height:100%;width:{100*t/amax:.1f}%;border-radius:6px">{_inv_seg(l, cl, amax)}</div></div>'
-                           f'<div class="invn">{t}</div>'
-                           f'<div class="invsplit" style="color:{COLLAB_C}">{pcol}%</div></div>')
+        for p in c.get('collab', []):
+            area_inv[a][1 if p in by_name else 2] += 1
+    amax = max((l + i + e for l, i, e in area_inv.values()), default=1) or 1
+    area_sorted = sorted(area_inv.items(), key=lambda kv: -sum(kv[1]))
+
+    def _area_pane(mode):
+        html = ''
+        for a, (l, i, e) in area_sorted:
+            tl = esc(f'{l} lead assignment{_pl(l)} — {a}: {l} request{_pl(l)}, one lead each')
+            if mode == 'lead':
+                barw, num, split = 100 * l / amax, l, ''
+                inner = f'<span title="{tl}" style="width:100%;background:{LEAD_C}"></span>' if l else ''
+            else:
+                t = l + i + e
+                barw, num = 100 * t / amax, t
+                split = f'<div class="invsplit" style="color:{COLLAB_C}">{round(100*(i+e)/t) if t else 0}%</div>'
+                ti = esc(f'{i} collaboration{_pl(i)} by nutrition colleagues on {a} requests')
+                te = esc(f'{e} collaboration{_pl(e)} from other sectors, CO / RO on {a} requests')
+                inner = ''
+                if l:
+                    inner += f'<span title="{tl}" style="width:{100*l/t:.2f}%;background:{LEAD_C}"></span>'
+                if i:
+                    inner += f'<span title="{ti}" style="width:{100*i/t:.2f}%;background:{COLLAB_C}"></span>'
+                if e:
+                    inner += f'<span title="{te}" style="width:{100*e/t:.2f}%;background:{EXT_C}"></span>'
+            html += (f'<div class="invrow" style="grid-template-columns:230px 1fr 40px 62px">'
+                     f'<div class="invlabel"><div class="invname">{esc(a)}</div></div>'
+                     f'<div class="track" style="height:13px;background:#EEF2F6;border-radius:6px"><div class="bar" style="height:100%;width:{barw:.1f}%;border-radius:6px">{inner}</div></div>'
+                     f'<div class="invn">{num}</div>{split}</div>')
+        return html
+    area_all, area_lead = _area_pane('all'), _area_pane('lead')
 
     inv_legend = (f'<div class="legend"><div class="lg"><span class="lgdot" style="background:{LEAD_C}"></span>Lead (Assigned to)</div>'
                   f'<div class="lg"><span class="lgdot" style="background:{COLLAB_C}"></span>Collaborator</div></div>')
+    area_legend = (f'<div class="legend"><div class="lg"><span class="lgdot" style="background:{LEAD_C}"></span>Lead (Assigned to)</div>'
+                   f'<div class="lg"><span class="lgdot" style="background:{COLLAB_C}"></span>Internal collaborators</div>'
+                   f'<div class="lg"><span class="lgdot" style="background:{EXT_C}"></span>External collaborators</div></div>')
     inv_stats = (
         '<div class="loadstat">'
         f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Nutrition staff involved</div><div class="loadval" style="color:#0B6FA4">{team_involved}</div><div class="loadsub" style="color:#7FA6BE">{n_lead_only} lead only · {n_both} lead + collaborate · {n_collab_only} collaborate only</div></div>'
         f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Mostly collaborators</div><div class="loadval" style="color:#2E7D5B">{n_mostly}</div><div class="loadsub" style="color:#7FB49C">nutrition staff who collaborate more than they lead</div></div>'
         f'<div class="loadbox" style="background:#EAF3F0;border:1px solid #CDE3DA"><div class="loadlabel" style="color:#2C6E58">Collaboration inside the team</div><div class="loadval" style="color:#2E7D5B">{collab_within}</div><div class="loadsub" style="color:#7FB49C">times a nutrition colleague collaborates on a request</div></div>'
-        f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Collaboration from outside</div><div class="loadval" style="color:#B0602C">{collab_outside}</div><div class="loadsub" style="color:#C9A66B">from {ext_ppl} people in other sectors, CO / RO · mentioned only, not in the charts</div></div>'
+        f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Collaboration from outside</div><div class="loadval" style="color:#B0602C">{collab_outside}</div><div class="loadsub" style="color:#C9A66B">from {ext_ppl} people in other sectors, CO / RO · shown in amber in the role-split chart</div></div>'
         '</div>')
 
     # ----- busiest leads: status bar + collaborator extension -----
     lead_tmax = max((len(lr) + inv.get(nm, {}).get('collab', 0) for nm, lr in lead_groups), default=1) or 1
 
-    def _busy_bar(lrows, collab):
+    def _busy_bar(nm, lrows, collab):
         led = len(lrows)
         tot = (led + collab) or 1
         inner = ''
         for st in STATUS_ORDER:
             w = sum(1 for c in lrows if c['status'] == st)
             if w:
-                inner += f'<span style="width:{100*w/tot:.2f}%;background:{SC[st]}"></span>'
+                tt = esc(f'{nm} — {w} led request{_pl(w)} at {st}')
+                inner += f'<span title="{tt}" style="width:{100*w/tot:.2f}%;background:{SC[st]}"></span>'
         if collab:
-            inner += f'<span style="width:{100*collab/tot:.2f}%;background:{COLLAB_C}"></span>'
+            tt = esc(f'{nm} — collaborates on {collab} more request{_pl(collab)}')
+            inner += f'<span title="{tt}" style="width:{100*collab/tot:.2f}%;background:{COLLAB_C}"></span>'
         return (f'<div class="track" style="height:11px;background:#EEF2F6;border-radius:6px">'
                 f'<div class="bar" style="height:100%;width:{100*(led+collab)/lead_tmax:.1f}%;border-radius:6px">{inner}</div></div>')
 
-    lead_html = ''
-    for name, lrows in lead_groups:
-        col = inv.get(name, {}).get('collab', 0)
-        extra = f'<span style="color:{COLLAB_C};font-weight:700"> +{col}</span>' if col else ''
-        lead_html += (f'<div class="leadrow" style="grid-template-columns:180px 1fr 58px"><div class="leadlabel"><div class="leadname">{esc(name)}</div>'
-                      f'<div class="leadarea">{esc(lrows[0]["area"])}</div></div>'
-                      f'{_busy_bar(lrows, col)}<div class="ln">{len(lrows)}{extra}</div></div>')
+    def _busy_pane(mode):
+        html = ''
+        for name, lrows in lead_groups:
+            col = inv.get(name, {}).get('collab', 0)
+            if mode == 'lead':
+                bar, extra = _busy_bar(name, lrows, 0), ''
+            else:
+                bar = _busy_bar(name, lrows, col)
+                extra = f'<span style="color:{COLLAB_C};font-weight:700"> +{col}</span>' if col else ''
+            html += (f'<div class="leadrow" style="grid-template-columns:180px 1fr 58px"><div class="leadlabel"><div class="leadname">{esc(name)}</div>'
+                     f'<div class="leadarea">{esc(lrows[0]["area"])}</div></div>'
+                     f'{bar}<div class="ln">{len(lrows)}{extra}</div></div>')
+        return html
+    busy_all, busy_lead = _busy_pane('all'), _busy_pane('lead')
     busy_legend = (f'<div class="legend">{legend()}'
                    f'<div class="lg"><span class="lgdot" style="background:{COLLAB_C}"></span>Collaboration</div></div>')
 
@@ -918,7 +954,7 @@ def render_work(rows):
         vmin, vmax = min(vals), max(vals)
         vavg = sum(vals) / len(vals)
         disp = 'block' if shown else 'none'
-        return (f'<div class="sprpane" data-spread="{tag}" style="display:{disp}">'
+        return (f'<div class="modepane" data-mode="{tag}" style="display:{disp}">'
                 f'<div style="font-size:13px;color:#5B7186;margin-bottom:2px"><b style="color:#0B6FA4;font-size:15px">{len(vals)}</b> {per_label}</div>'
                 '<div class="loadstat">'
                 f'<div class="loadbox" style="background:#F6F8FA;border:1px solid #EDF1F4"><div class="loadlabel" style="color:#7A8C9C">Minimum</div><div class="loadval" style="color:#2E7D5B">{vmin}</div><div class="loadsub" style="color:#9AA7B2">lightest</div></div>'
@@ -929,47 +965,42 @@ def render_work(rows):
                 f'<div style="display:flex;justify-content:space-between;margin:9px 4px 0;font-size:11px;color:#7A8C9C"><span>Min {vmin}</span><span style="color:#0F2238;font-weight:700">Avg {vavg:.1f}</span><span>Max {vmax}</span></div></div>')
 
     team_max_nm = max(team_people, key=lambda kv: kv[1]['lead'] + kv[1]['collab'])[0] if team_people else '—'
-    spread_lead = _spread_block(counts, lead_groups[0][0], 'TA leads assigned', 'lead', True)
-    spread_total = _spread_block(team_totals or [0], team_max_nm, 'nutrition-team staff involved (lead + collaborator)', 'total', False)
+    spread_all = _spread_block(team_totals or [0], team_max_nm, 'nutrition-team staff involved (lead + collaborator)', 'all', True)
+    spread_lead = _spread_block(counts, lead_groups[0][0], 'TA leads assigned', 'lead', False)
 
     return f'''{head}
       <div class="card">
         <div class="cardtitle">The work behind the team — lead &amp; collaborator involvement</div>
-        <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. This view focuses on the <b>nutrition team</b>: who leads, who is <b>mostly a collaborator</b>, and how much collaboration happens <b>inside the team</b>. Support from other sectors, Country and Regional Offices is shown as a <b>mention</b> (a headcount and its collaborations) but is <b>not counted in the charts</b> below.</div>
+        <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. This view focuses on the <b>nutrition team</b>: who leads, who is <b>mostly a collaborator</b>, and how much collaboration happens <b>inside the team</b> — with <b>cross-sectoral</b> support from other sectors, Country and Regional Offices shown alongside (in amber).</div>
         {inv_stats}
         <div class="wnote"><span class="wnote-tag">Data note</span> This dataset covers TA requests <b>led by the nutrition team</b>, so it captures collaboration <b>on nutrition requests</b> only. It does <b>not</b> yet include requests led by <b>other teams</b> where nutrition staff collaborate — so the collaboration load shown here <b>understates</b> our colleagues' true involvement. To be added once that data is available.</div>
       </div>
+      <div class="modebar"><span class="kpifl">Show</span><button class="wtoggle modetoggle on" data-mode="all" onclick="showMode('all')">Leads + all collaborators</button><button class="wtoggle modetoggle" data-mode="lead" onclick="showMode('lead')">Leads only</button><span class="muted" style="font-size:11.5px">applies to every chart below</span></div>
       <div class="card mt16">
         <div class="cardtitle">Role split by thematic area — how much delivery is collaboration</div>
-        <div class="invcap">Per area: lead assignments + collaborations by nutrition colleagues (cross-sectoral support is excluded here). The % is the collaborator share.</div>
-        {inv_legend}
-        {area_rows_html}
+        <div class="invcap">Per area: lead assignments + collaborations by nutrition colleagues (green) and from other sectors / CO / RO (amber). The % is the collaborator share. Hover any segment for its exact count.</div>
+        {area_legend}
+        <div class="modepane" data-mode="all">{area_all}</div>
+        <div class="modepane" data-mode="lead" style="display:none">{area_lead}</div>
       </div>
       <div class="card mt16">
         <div class="cardtitle">Nutrition team workload — lead &amp; collaborator, per person</div>
-        <div class="invcap">Nutrition-team staff only. Toggle between counting only the requests each person <b>leads</b> and their <b>total involvement</b> (leads + collaboration), on a common scale — the growth is the hidden work.</div>
-        <div class="wtoggles"><button class="wtoggle invtoggle on" data-inv="both" onclick="showInv('both')">Leads + collaboration</button><button class="wtoggle invtoggle" data-inv="lead" onclick="showInv('lead')">Leads only</button></div>
+        <div class="invcap">Nutrition-team staff only, on a common scale — the growth between the two views is the hidden collaboration work. Hover a bar segment for the exact count.</div>
         {inv_legend}
-        <div class="invpane" data-inv="both"><div class="invscroll">{both_rows}</div></div>
-        <div class="invpane" data-inv="lead" style="display:none"><div class="invscroll">{lead_rows}</div></div>
-      </div>
-      <div class="card mt16">
-        <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
-        <div class="legend">{legend()}</div>
-        <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
-        {area_status_rows(groupby_area(rows))}
+        <div class="modepane" data-mode="all"><div class="invscroll">{both_rows}</div></div>
+        <div class="modepane" data-mode="lead" style="display:none"><div class="invscroll">{lead_rows}</div></div>
       </div>
       <div class="card mt16">
         <div class="cardtitle">Workload spread</div>
-        <div class="invcap">Average, minimum and maximum load. Toggle between requests <b>led</b> and <b>total involvement</b> (leads + collaboration) across the nutrition team.</div>
-        <div class="wtoggles"><button class="wtoggle sprtoggle on" data-spread="lead" onclick="showSpread('lead')">Lead load</button><button class="wtoggle sprtoggle" data-spread="total" onclick="showSpread('total')">Total involvement</button></div>
-        {spread_lead}{spread_total}
+        <div class="invcap">Average, minimum and maximum load — requests <b>led</b> only, or <b>total involvement</b> (leads + collaboration) across the nutrition team, per the toggle above.</div>
+        {spread_all}{spread_lead}
       </div>
       <div class="card mt16">
         <div class="cardtitle">Busiest TA lead staff — led work by status, plus collaboration</div>
-        <div class="invcap">Each bar is a lead's requests coloured by status, extended by the requests they also collaborate on (teal). Number is requests led, with collaborations as <b style="color:{COLLAB_C}">+n</b>.</div>
+        <div class="invcap">Each bar is a lead's requests coloured by status, extended by the requests they also collaborate on (teal). Number is requests led, with collaborations as <b style="color:{COLLAB_C}">+n</b>. Hover a segment for detail.</div>
         {busy_legend}
-        <div class="leadgrid">{lead_html}</div>
+        <div class="modepane" data-mode="all"><div class="leadgrid">{busy_all}</div></div>
+        <div class="modepane" data-mode="lead" style="display:none"><div class="leadgrid">{busy_lead}</div></div>
       </div>'''
 
 
@@ -1293,6 +1324,8 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .wtoggles {{ display:flex; gap:6px; margin:2px 0 14px; flex-wrap:wrap; }}
   .wtoggle {{ cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:700; padding:7px 14px; border-radius:8px; border:1px solid #D5DEE6; background:#fff; color:#5B7186; }}
   .wtoggle.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
+  .modebar {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:16px 0 0; }}
+  .modebar .kpifl {{ margin-right:2px; }}
   .wnote {{ background:#FBF7EE; border:1px solid #EAD9B0; border-left:3px solid #D8A93B; border-radius:8px; padding:12px 15px; margin:16px 0 2px; font-size:12.5px; color:#6E5B33; line-height:1.55; }}
   .wnote b {{ color:#5A4A28; }}
   .wnote-tag {{ display:inline-block; font-size:10px; letter-spacing:.07em; text-transform:uppercase; font-weight:700; color:#B0862C; margin-right:8px; }}
@@ -1591,6 +1624,12 @@ function showSpread(m){{
   for(var i=0;i<ps.length;i++){{ ps[i].style.display = ps[i].getAttribute('data-spread')===m ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.sprtoggle');
   for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-spread')===m){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
+}}
+function showMode(m){{
+  var ps=document.querySelectorAll('.modepane');
+  for(var i=0;i<ps.length;i++){{ ps[i].style.display = ps[i].getAttribute('data-mode')===m ? '' : 'none'; }}
+  var ts=document.querySelectorAll('.modetoggle');
+  for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-mode')===m){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
 }}
 function sortDet(el){{
   var col=el.getAttribute('data-col'), num=el.getAttribute('data-num')==='1';
