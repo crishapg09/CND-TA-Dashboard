@@ -538,6 +538,21 @@ dq_ob = [('1–30 days', sum(1 for c in dq_overdue if TODAY - c['xc'] <= 30), '#
          ('>60 days', sum(1 for c in dq_overdue if TODAY - c['xc'] > 60), '#C0453F')]
 at_risk = [c for c in activeCO if c['xc'] is not None and TODAY <= c['xc'] <= TODAY + 30]
 dq_overdue_area = [(k, len(v)) for k, v in groupby_area(dq_overdue)]
+
+# overdue severity as a single full-width stacked bar
+_sevtot = sum(n for _, n, _ in dq_ob) or 1
+_sevseg = ''.join(f'<span style="width:{100*n/_sevtot:.2f}%;background:{col}"></span>' for _, n, col in dq_ob)
+_sevlabels = ''.join(f'<span style="color:{col}">{n} &middot; {esc(lab)}</span>' for lab, n, col in dq_ob)
+_sevleg = ''.join(f'<div class="lg"><span class="lgdot" style="background:{col}"></span>{esc(lab)}</div>' for lab, n, col in dq_ob)
+_sevbig = max(dq_ob, key=lambda x: x[1])
+overdue_sev_card = (
+    '<div class="card mt16"><div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+    '<div class="cardtitle" style="margin-bottom:0">Overdue severity</div>'
+    f'<div class="legend" style="margin:0">{_sevleg}</div></div>'
+    f'<div class="track" style="height:26px;background:#EEF2F6;border-radius:6px;margin:14px 0 12px"><div class="bar" style="height:100%;width:100%;border-radius:6px">{_sevseg}</div></div>'
+    f'<div style="display:flex;gap:28px;flex-wrap:wrap;font-size:12.5px;font-weight:700">{_sevlabels}</div>'
+    f'<div class="cardnote"><strong>What this says:</strong> {len(dq_overdue)} requests are past their expected completion date. The largest group is {esc(_sevbig[0])} ({_sevbig[1]}). Anything beyond 60 days needs the expected completion date reviewed — the original target is no longer credible, so the request should be re-planned, or closed if the work is finished.</div>'
+    '</div>')
 not_closed = [c for c in co if c['status'] in ('100%', 'Discontinued') and not c['cl']]
 for c in not_closed: c['_m'] = 'completed' if c['status'] == '100%' else 'discontinued'
 
@@ -1563,12 +1578,12 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     </div>
 
     {dqsec(3, 'Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
-    <div class="grid3">
+    <div class="grid2">
       {hero('#FBF0EF', '#F0D2CF', '#B0453F', len(dq_overdue), '#C0453F', 'Overdue', 'active requests past their expected completion date.', '#8A5450')}
-      <div class="minicard"><div class="cardtitle">Overdue severity</div><div style="margin-top:6px">{bucket_bars(dq_ob, label_w=92)}</div></div>
       <div class="minicard"><div class="cardtitle">Upcoming closure (next 30 days)</div><div style="display:flex;align-items:baseline;gap:10px;margin-top:6px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div></div>
     </div>
-    <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=150)}</div>
+    {overdue_sev_card}
+    <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=270, pct=True)}</div>
 
     {dqsec(4, 'All requests — filter and browse', 'One table for the whole lifecycle. Switch between received & in review, overdue, and completed.')}
     <div class="dqtogs"><button class="dtoggle dqtog on" data-dqt="recv" onclick="showDqt('recv')">Received &amp; in review <b>{len(setupSet)}</b></button><button class="dtoggle dqtog" data-dqt="over" onclick="showDqt('over')">Overdue <b>{len(dq_overdue)}</b></button><button class="dtoggle dqtog" data-dqt="done" onclick="showDqt('done')">Completed <b>{len(completedC)}</b></button></div>
