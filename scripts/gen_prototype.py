@@ -939,6 +939,7 @@ def render_work(rows):
         <div class="cardtitle">The work behind the work — lead &amp; collaborator involvement</div>
         <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. This view focuses on the <b>nutrition team</b>: who leads, who is <b>mostly a collaborator</b>, and how much collaboration happens <b>inside the team</b>. Support from other sectors, Country and Regional Offices is shown as a <b>mention</b> (a headcount and its collaborations) but is <b>not counted in the charts</b> below.</div>
         {inv_stats}
+        <div class="wnote"><span class="wnote-tag">Data note</span> This dataset covers TA requests <b>led by the nutrition team</b>, so it captures collaboration <b>on nutrition requests</b> only. It does <b>not</b> yet include requests led by <b>other teams</b> where nutrition staff collaborate — so the collaboration load shown here <b>understates</b> our colleagues' true involvement. To be added once that data is available.</div>
         <div class="divider"></div>
         <div class="cardtitle">Nutrition team workload — lead &amp; collaborator, per person</div>
         <div class="invcap">Nutrition-team staff only. Toggle between counting only the requests each person <b>leads</b> and their <b>total involvement</b> (leads + collaboration), on a common scale — the growth is the hidden work.</div>
@@ -1286,6 +1287,9 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .wtoggles {{ display:flex; gap:6px; margin:2px 0 14px; flex-wrap:wrap; }}
   .wtoggle {{ cursor:pointer; font-family:inherit; font-size:12.5px; font-weight:700; padding:7px 14px; border-radius:8px; border:1px solid #D5DEE6; background:#fff; color:#5B7186; }}
   .wtoggle.on {{ background:#16385C; color:#fff; border-color:#16385C; }}
+  .wnote {{ background:#FBF7EE; border:1px solid #EAD9B0; border-left:3px solid #D8A93B; border-radius:8px; padding:12px 15px; margin:16px 0 2px; font-size:12.5px; color:#6E5B33; line-height:1.55; }}
+  .wnote b {{ color:#5A4A28; }}
+  .wnote-tag {{ display:inline-block; font-size:10px; letter-spacing:.07em; text-transform:uppercase; font-weight:700; color:#B0862C; margin-right:8px; }}
 
   /* flow-of-work bubbles */
   .flowband {{ display:flex; align-items:flex-start; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
