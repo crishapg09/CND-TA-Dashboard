@@ -934,23 +934,10 @@ def render_work(rows):
 
     return f'''{head}
       <div class="card">
-        <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
-        <div class="legend">{legend()}</div>
-        <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
-        {area_status_rows(groupby_area(rows))}
-      </div>
-      <div class="card mt16">
-        <div class="cardtitle">The work behind the work — lead &amp; collaborator involvement</div>
+        <div class="cardtitle">The work behind the team — lead &amp; collaborator involvement</div>
         <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. This view focuses on the <b>nutrition team</b>: who leads, who is <b>mostly a collaborator</b>, and how much collaboration happens <b>inside the team</b>. Support from other sectors, Country and Regional Offices is shown as a <b>mention</b> (a headcount and its collaborations) but is <b>not counted in the charts</b> below.</div>
         {inv_stats}
         <div class="wnote"><span class="wnote-tag">Data note</span> This dataset covers TA requests <b>led by the nutrition team</b>, so it captures collaboration <b>on nutrition requests</b> only. It does <b>not</b> yet include requests led by <b>other teams</b> where nutrition staff collaborate — so the collaboration load shown here <b>understates</b> our colleagues' true involvement. To be added once that data is available.</div>
-        <div class="divider"></div>
-        <div class="cardtitle">Nutrition team workload — lead &amp; collaborator, per person</div>
-        <div class="invcap">Nutrition-team staff only. Toggle between counting only the requests each person <b>leads</b> and their <b>total involvement</b> (leads + collaboration), on a common scale — the growth is the hidden work.</div>
-        <div class="wtoggles"><button class="wtoggle invtoggle on" data-inv="both" onclick="showInv('both')">Leads + collaboration</button><button class="wtoggle invtoggle" data-inv="lead" onclick="showInv('lead')">Leads only</button></div>
-        {inv_legend}
-        <div class="invpane" data-inv="both"><div class="invscroll">{both_rows}</div></div>
-        <div class="invpane" data-inv="lead" style="display:none"><div class="invscroll">{lead_rows}</div></div>
       </div>
       <div class="card mt16">
         <div class="cardtitle">Role split by thematic area — how much delivery is collaboration</div>
@@ -959,11 +946,26 @@ def render_work(rows):
         {area_rows_html}
       </div>
       <div class="card mt16">
+        <div class="cardtitle">Nutrition team workload — lead &amp; collaborator, per person</div>
+        <div class="invcap">Nutrition-team staff only. Toggle between counting only the requests each person <b>leads</b> and their <b>total involvement</b> (leads + collaboration), on a common scale — the growth is the hidden work.</div>
+        <div class="wtoggles"><button class="wtoggle invtoggle on" data-inv="both" onclick="showInv('both')">Leads + collaboration</button><button class="wtoggle invtoggle" data-inv="lead" onclick="showInv('lead')">Leads only</button></div>
+        {inv_legend}
+        <div class="invpane" data-inv="both"><div class="invscroll">{both_rows}</div></div>
+        <div class="invpane" data-inv="lead" style="display:none"><div class="invscroll">{lead_rows}</div></div>
+      </div>
+      <div class="card mt16">
+        <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
+        <div class="legend">{legend()}</div>
+        <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
+        {area_status_rows(groupby_area(rows))}
+      </div>
+      <div class="card mt16">
         <div class="cardtitle">Workload spread</div>
         <div class="invcap">Average, minimum and maximum load. Toggle between requests <b>led</b> and <b>total involvement</b> (leads + collaboration) across the nutrition team.</div>
         <div class="wtoggles"><button class="wtoggle sprtoggle on" data-spread="lead" onclick="showSpread('lead')">Lead load</button><button class="wtoggle sprtoggle" data-spread="total" onclick="showSpread('total')">Total involvement</button></div>
         {spread_lead}{spread_total}
-        <div class="divider"></div>
+      </div>
+      <div class="card mt16">
         <div class="cardtitle">Busiest TA lead staff — led work by status, plus collaboration</div>
         <div class="invcap">Each bar is a lead's requests coloured by status, extended by the requests they also collaborate on (teal). Number is requests led, with collaborations as <b style="color:{COLLAB_C}">+n</b>.</div>
         {busy_legend}
