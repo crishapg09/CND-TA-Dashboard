@@ -82,8 +82,10 @@ def _collab(v, lead):
         name = name.strip()
         key = name.lower()
         # skip blanks, the request's own lead, and non-human system/test accounts
-        # (e.g. the "DEV-…" service account that appears as a bulk collaborator)
-        if name and name != lead and not name.startswith('DEV-') and key not in seen:
+        # (the "DEV-…" service account and "System Administrator" that appear as
+        # bulk collaborators)
+        if (name and name != lead and not name.startswith('DEV-')
+                and name != 'System Administrator' and key not in seen):
             seen.add(key)
             out.append(name)
     return out
