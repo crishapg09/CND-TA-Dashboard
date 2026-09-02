@@ -800,12 +800,101 @@ def render_work(rows):
         lead_html += (f'<div class="leadrow"><div class="leadlabel"><div class="leadname">{esc(name)}</div>'
                       f'<div class="leadarea">{esc(lrows[0]["area"])}</div></div>'
                       f'{seg_bar(stacked_segs(lrows), 100*len(lrows)/lmax, 11)}<div class="ln">{len(lrows)}</div></div>')
+
+    # ===== lead + collaborator involvement =====
+    LEAD_C, COLLAB_C = '#0B5A8A', '#5FB49C'
+    inv = {}
+
+    def _touch(nm):
+        if nm not in inv:
+            stf = by_name.get(nm)
+            area = (stf['area'] if stf and stf['area'] else '') or '—'
+            inv[nm] = {'lead': 0, 'collab': 0, 'area': area}
+        return inv[nm]
+
+    for c in rows:
+        if c['lead']:
+            _touch(c['lead'])['lead'] += 1
+        for p in c.get('collab', []):
+            _touch(p)['collab'] += 1
+
+    people = sorted(inv.items(), key=lambda kv: (-(kv[1]['lead'] + kv[1]['collab']), kv[0]))
+    tot_lead = sum(v['lead'] for v in inv.values())
+    tot_collab = sum(v['collab'] for v in inv.values())
+    tot_inv = (tot_lead + tot_collab) or 1
+    n_people = len(inv)
+    n_leadppl = sum(1 for v in inv.values() if v['lead'])
+    collab_only = sum(1 for v in inv.values() if v['lead'] == 0 and v['collab'] > 0)
+    pmax = max((v['lead'] + v['collab'] for v in inv.values()), default=1) or 1
+
+    def _inv_seg(l, cl, denom):
+        seg = ''
+        if l:
+            seg += f'<span style="width:{100*l/denom:.2f}%;background:{LEAD_C}"></span>'
+        if cl:
+            seg += f'<span style="width:{100*cl/denom:.2f}%;background:{COLLAB_C}"></span>'
+        return seg
+
+    staff_rows = ''
+    for nm, v in people:
+        t = v['lead'] + v['collab']
+        pcol = round(100 * v['collab'] / t) if t else 0
+        staff_rows += (f'<div class="invrow">'
+                       f'<div class="invlabel"><div class="invname">{esc(nm)}</div><div class="invarea">{esc(v["area"])}</div></div>'
+                       f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px"><div class="bar" style="height:100%;width:{100*t/pmax:.1f}%;border-radius:6px">{_inv_seg(v["lead"], v["collab"], pmax)}</div></div>'
+                       f'<div class="invn">{t}</div>'
+                       f'<div class="invsplit" style="color:{COLLAB_C}">{pcol}%</div></div>')
+
+    area_inv = defaultdict(lambda: [0, 0])
+    for c in rows:
+        a = c['area']
+        if c['lead']:
+            area_inv[a][0] += 1
+        area_inv[a][1] += len(c.get('collab', []))
+    area_sorted = sorted(area_inv.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
+    amax = max((l + cl for l, cl in area_inv.values()), default=1) or 1
+    area_rows_html = ''
+    for a, (l, cl) in area_sorted:
+        t = l + cl
+        pcol = round(100 * cl / t) if t else 0
+        area_rows_html += (f'<div class="invrow" style="grid-template-columns:230px 1fr 40px 62px">'
+                           f'<div class="invlabel"><div class="invname">{esc(a)}</div></div>'
+                           f'<div class="track" style="height:13px;background:#EEF2F6;border-radius:6px"><div class="bar" style="height:100%;width:{100*t/amax:.1f}%;border-radius:6px">{_inv_seg(l, cl, amax)}</div></div>'
+                           f'<div class="invn">{t}</div>'
+                           f'<div class="invsplit" style="color:{COLLAB_C}">{pcol}%</div></div>')
+
+    inv_legend = (f'<div class="legend"><div class="lg"><span class="lgdot" style="background:{LEAD_C}"></span>Lead (Assigned to)</div>'
+                  f'<div class="lg"><span class="lgdot" style="background:{COLLAB_C}"></span>Collaborator</div></div>')
+    inv_stats = (
+        '<div class="loadstat">'
+        f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Total involvements</div><div class="loadval" style="color:#0B6FA4">{tot_inv}</div><div class="loadsub" style="color:#7FA6BE">{tot_lead} lead + {tot_collab} collaborator</div></div>'
+        f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Collaborator share</div><div class="loadval" style="color:#2E7D5B">{round(100*tot_collab/tot_inv)}%</div><div class="loadsub" style="color:#7FB49C">of all staff involvement</div></div>'
+        f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Staff involved</div><div class="loadval" style="color:#B0602C">{n_people}</div><div class="loadsub" style="color:#C9A66B">vs {n_leadppl} visible as leads</div></div>'
+        f'<div class="loadbox" style="background:#FBF0EF;border:1px solid #F0D2CF"><div class="loadlabel" style="color:#B0453F">Invisible today</div><div class="loadval" style="color:#C0453F">{collab_only}</div><div class="loadsub" style="color:#C79490">contribute only as collaborators</div></div>'
+        '</div>')
+
     return f'''{head}
       <div class="card">
         <div class="cardtitle">Requests by thematic area — coloured by implementation status</div>
         <div class="legend">{legend()}</div>
         <div class="areahead"><div>Thematic area</div><div></div><div class="r">TAs</div><div class="r">Leads</div></div>
         {area_status_rows(groupby_area(rows))}
+      </div>
+      <div class="card mt16">
+        <div class="cardtitle">The work behind the work — lead &amp; collaborator involvement</div>
+        <div class="invcap" style="max-width:940px">Every request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also dedicate time. Counting only leads hides that effort — here each person's workload is their <b>total involvement</b>: requests they lead <b>plus</b> requests they support.</div>
+        {inv_stats}
+        <div class="divider"></div>
+        <div class="cardtitle">All staff involved — total workload, split by role</div>
+        <div class="invcap">Bar length is total involvement; dark = requests led, light = requests collaborated on. Right column: total, then % of that person's work that is collaboration.</div>
+        {inv_legend}
+        <div class="invscroll">{staff_rows}</div>
+      </div>
+      <div class="card mt16">
+        <div class="cardtitle">Role split by thematic area — how much delivery is collaboration</div>
+        <div class="invcap">Per area: lead assignments + collaborator assignments on those requests. The % is the collaborator share.</div>
+        {inv_legend}
+        {area_rows_html}
       </div>
       <div class="card mt16">
         <div class="cardtitle">Requests per TA lead — workload spread</div>
@@ -1130,6 +1219,17 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .loadval {{ font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.15; margin-top:3px; }}
   .loadsub {{ font-size:11px; }}
   .divider {{ height:1px; background:#EDF1F4; margin:22px 0; }}
+
+  /* lead + collaborator involvement */
+  .invcap {{ font-size:11.5px; color:#8A98A6; margin:2px 0 12px; line-height:1.5; }}
+  .invrow {{ display:grid; grid-template-columns:210px 1fr 40px 62px; gap:12px; align-items:center; margin-bottom:9px; }}
+  .invlabel {{ min-width:0; }}
+  .invname {{ font-size:12px; color:#43586B; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .invarea {{ font-size:10.5px; color:#9AA7B2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+  .invn {{ text-align:right; font-weight:700; font-size:12.5px; font-variant-numeric:tabular-nums; }}
+  .invsplit {{ text-align:right; font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; }}
+  .invscroll {{ max-height:470px; overflow-y:auto; padding-right:6px; }}
+  @media (max-width:680px) {{ .invrow {{ grid-template-columns:1fr 60px 40px 56px; }} }}
 
   /* flow-of-work bubbles */
   .flowband {{ display:flex; align-items:flex-start; justify-content:center; gap:6px; flex-wrap:wrap; margin:8px 0 2px; }}
