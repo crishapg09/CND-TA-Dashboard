@@ -25,6 +25,20 @@ TODAY = json.load(open(f'{ROOT}/today.json'))
 by_name = {s['name']: s for s in staff}
 EPOCH = datetime.datetime(1899, 12, 30)
 
+# ---- Global Practice: this build renders ONE practice; gen_dashboard.py runs
+# it once per practice (GP=n / GP=c) and stitches the two bodies behind a
+# top-level Global Practice filter. TEAM_ROSTER = that practice's own staff,
+# used for the workload "internal vs cross-sectoral" collaboration split.
+GP = os.environ.get('GP', 'n')
+PRACTICE = {'n': 'Child Nutrition and Development',
+            'c': 'Climate Resilience for Children'}.get(GP, 'Child Nutrition and Development')
+GP_LABEL = {'n': 'Nutrition', 'c': 'Climate'}.get(GP, 'Nutrition')
+cases = [c for c in cases if (c.get('practice') or 'Child Nutrition and Development') == PRACTICE]
+TEAM_ROSTER = {s['name'] for s in staff if s.get('practice') == PRACTICE}
+EYEBROW = html.escape(PRACTICE) + ' · Technical Assistance'
+DASH_TITLE = f'{GP_LABEL} TA Management Dashboard'
+PRAC_ADJ = GP_LABEL.lower()   # "nutrition" / "climate" — used in body copy
+
 # "as of" date and the 30-day window, derived from the data
 TODAY_STR = (EPOCH + datetime.timedelta(days=TODAY)).strftime('%-d %b %Y')      # e.g. 29 Jul 2026
 WIN_STR = (EPOCH + datetime.timedelta(days=TODAY - 30)).strftime('%-d %b %Y')   # e.g. 29 Jun 2026
@@ -253,7 +267,7 @@ def perf_kpi_strip(rows, noun, is_all):
     comp = sum(1 for c in rows if c['status'] == '100%')
     act = [c for c in rows if c['status'] not in ('100%', 'Discontinued', 'Unassigned')]
     ovd = sum(1 for c in act if c['xc'] is not None and c['xc'] < TODAY)
-    total_sub = ('nutrition TA requests &middot; country offices' if is_all
+    total_sub = (f'{PRAC_ADJ} TA requests &middot; country offices' if is_all
                  else f'{pct(n, len(PERF))}% of all {len(PERF)} requests &middot; {noun}')
     cards = [
         ('Total requests', str(n), total_sub, '#0B6FA4', '#0F2238'),
@@ -702,7 +716,7 @@ def render_demand(rows):
     dopct = round(100 * len(completed_r) / flow_total)
     flow_card = (
         '<div class="card">'
-        f'<div class="cardtitle" style="margin-bottom:2px">Where the {len(rows)} nutrition TA requests stand today</div>'
+        f'<div class="cardtitle" style="margin-bottom:2px">Where the {len(rows)} {PRAC_ADJ} TA requests stand today</div>'
         f'<div style="font-size:12.5px;color:#5B7186;margin-bottom:8px">Each circle is sized by its share of the portfolio — '
         f'<b style="color:#3E9CD6">{onpct}% on track</b>, <b style="color:#2E7D5B">{dopct}% completed</b>, and '
         f'<b style="color:#C0453F">{ovpct}% overdue</b>. Click a circle to break that group down by thematic area.</div>'
@@ -722,7 +736,7 @@ def render_demand(rows):
                             ('overdue', 'Overdue requests', overdue_r),
                             ('completed', 'Completed', _newest(completed_r))])
 
-    return f'''{panelhead('Status of TA', 'The full lifecycle of nutrition TA requests — received, in progress, completed and overdue.')}
+    return f'''{panelhead('Status of TA', f'The full lifecycle of {PRAC_ADJ} TA requests — received, in progress, completed and overdue.')}
       {flow_card}
       <div class="divider" style="margin:26px 0 18px"></div>
       <div class="panelhead" style="margin:0 0 14px">
@@ -801,10 +815,11 @@ def render_flows(flowrows, suffix=''):
         loc_panels += (f'<div class="locpanel" data-loc="{slug(L)}" style="display:{disp}">'
                        f'<div class="locsummary">{summary}</div>'
                        f'{build_loc_bars(L, areas, lac)}</div>')
-    nairobi_total = hub_total.get('Nairobi', 0)
+    top_hub = ordered[0] if ordered else '—'
+    top_hub_total = hub_total.get(top_hub, 0)
     return f'''{panelhead('Where support flows', 'From each request’s TA-lead duty station (origin) to the supported country office (destination).')}
       <div class="card">
-        <div class="flowintro"><b>{n_hubs}</b> duty stations delivering technical assistance to <b>{n_countries}</b> countries. Origin is each request’s TA-lead duty station, joined to the CND staff roster ({len(staff)} staff); destination is the country office being supported.</div>
+        <div class="flowintro"><b>{n_hubs}</b> duty stations delivering technical assistance to <b>{n_countries}</b> countries. Origin is each request’s TA-lead duty station, joined to the staff roster ({len(TEAM_ROSTER)} staff); destination is the country office being supported.</div>
         {flow_map}
         <div class="wmlegend">
           <div class="lg"><span class="lgdot" style="background:#0B6FA4"></span>Duty station, sized by requests led</div>
@@ -821,7 +836,7 @@ def render_flows(flowrows, suffix=''):
           <div class="statuslegend"><span class="sllabel">Each square = 1 request, by status</span>{legend()}</div>
         </div>
         {loc_panels}
-        <div class="cardnote"><strong>What this says:</strong> select a CoE location to see how its TA load splits across thematic areas and staff assigned. <b>Nairobi</b> leads half of all nutrition TA ({nairobi_total})</div>
+        <div class="cardnote"><strong>What this says:</strong> select a CoE location to see how its TA load splits across thematic areas and staff assigned. <b>{esc(top_hub)}</b> leads the most {PRAC_ADJ} TA ({top_hub_total} requests)</div>
       </div>'''
 
 
@@ -847,7 +862,7 @@ def render_work(rows):
         if nm not in inv:
             stf = by_name.get(nm)
             area = (stf['area'] if stf and stf['area'] else '') or '—'
-            inv[nm] = {'lead': 0, 'collab': 0, 'area': area, 'team': nm in by_name}
+            inv[nm] = {'lead': 0, 'collab': 0, 'area': area, 'team': nm in TEAM_ROSTER}
         return inv[nm]
 
     for c in rows:
@@ -912,7 +927,7 @@ def render_work(rows):
         if c['lead']:
             area_sets[a]['lead'].add(c['lead'])
         for p in c.get('collab', []):
-            area_sets[a]['int' if p in by_name else 'ext'].add(p)
+            area_sets[a]['int' if p in TEAM_ROSTER else 'ext'].add(p)
     area_inv = {a: [len(s['lead']), len(s['int'] - s['lead']), len(s['ext'])] for a, s in area_sets.items()}
     amax = max((l + i + e for l, i, e in area_inv.values()), default=1) or 1
     area_sorted = sorted(area_inv.items(), key=lambda kv: -sum(kv[1]))
@@ -928,7 +943,7 @@ def render_work(rows):
                 t = l + i + e
                 barw, num = 100 * t / amax, t
                 split = f'<div class="invsplit" style="color:{COLLAB_C}">{round(100*(i+e)/t) if t else 0}%</div>'
-                ti = esc(f'{i} internal collaborator{_pl(i)} — nutrition colleagues supporting {a} (not leading it)')
+                ti = esc(f'{i} internal collaborator{_pl(i)} — {PRAC_ADJ} colleagues supporting {a} (not leading it)')
                 te = esc(f'{e} external collaborator{_pl(e)} — people from other sectors, CO / RO supporting {a}')
                 inner = ''
                 if l:
@@ -951,9 +966,9 @@ def render_work(rows):
                    f'<div class="lg"><span class="lgdot" style="background:{EXT_C}"></span>External collaborators</div></div>')
     inv_stats = (
         '<div class="loadstat">'
-        f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">Nutrition staff involved</div><div class="loadval" style="color:#0B6FA4">{team_involved}</div><div class="loadsub" style="color:#7FA6BE">{n_lead_only} lead only · {n_both} lead + collaborate · {n_collab_only} collaborate only</div></div>'
-        f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Mostly collaborators</div><div class="loadval" style="color:#2E7D5B">{n_mostly}</div><div class="loadsub" style="color:#7FB49C">nutrition staff who collaborate more than they lead</div></div>'
-        f'<div class="loadbox" style="background:#EAF3F0;border:1px solid #CDE3DA"><div class="loadlabel" style="color:#2C6E58">Collaboration inside the team</div><div class="loadval" style="color:#2E7D5B">{collab_within}</div><div class="loadsub" style="color:#7FB49C">times a nutrition colleague collaborates on a request</div></div>'
+        f'<div class="loadbox" style="background:#EEF6FB;border:1px solid #CFE6F2"><div class="loadlabel" style="color:#2C5A75">{GP_LABEL} staff involved</div><div class="loadval" style="color:#0B6FA4">{team_involved}</div><div class="loadsub" style="color:#7FA6BE">{n_lead_only} lead only · {n_both} lead + collaborate · {n_collab_only} collaborate only</div></div>'
+        f'<div class="loadbox" style="background:#EEF7F2;border:1px solid #CDE7DB"><div class="loadlabel" style="color:#2E7D5B">Mostly collaborators</div><div class="loadval" style="color:#2E7D5B">{n_mostly}</div><div class="loadsub" style="color:#7FB49C">{PRAC_ADJ} staff who collaborate more than they lead</div></div>'
+        f'<div class="loadbox" style="background:#EAF3F0;border:1px solid #CDE3DA"><div class="loadlabel" style="color:#2C6E58">Collaboration inside the team</div><div class="loadval" style="color:#2E7D5B">{collab_within}</div><div class="loadsub" style="color:#7FB49C">times a {PRAC_ADJ} colleague collaborates on a request</div></div>'
         f'<div class="loadbox" style="background:#FBF5EC;border:1px solid #F0E1C6"><div class="loadlabel" style="color:#8A6D2C">Collaboration from outside</div><div class="loadval" style="color:#B0602C">{collab_outside}</div><div class="loadsub" style="color:#C9A66B">from {ext_ppl} people in other sectors, CO / RO · shown in amber in the role-split chart</div></div>'
         '</div>')
 
@@ -1014,28 +1029,28 @@ def render_work(rows):
     return f'''{head}
       <div class="card">
         <div class="cardtitle">The work behind the team — lead &amp; collaborator involvement</div>
-        <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. This view focuses on the <b>nutrition team</b>: who leads, who is <b>mostly a collaborator</b>, and how much collaboration happens <b>inside the team</b> — with <b>cross-sectoral</b> support from other sectors, Country and Regional Offices shown alongside (in amber).</div>
+        <div class="invcap" style="max-width:980px">A request has one <b>lead</b> (Assigned&nbsp;to) and often several <b>collaborators</b> who also give time. This view focuses on the <b>{PRAC_ADJ} team</b>: who leads, who is <b>mostly a collaborator</b>, and how much collaboration happens <b>inside the team</b> — with <b>cross-sectoral</b> support from other sectors, Country and Regional Offices shown alongside (in amber).</div>
         {inv_stats}
-        <div class="wnote"><span class="wnote-tag">Data note</span> This dataset covers TA requests <b>led by the nutrition team</b>, so it captures collaboration <b>on nutrition requests</b> only. It does <b>not</b> yet include requests led by <b>other teams</b> where nutrition staff collaborate — so the collaboration load shown here <b>understates</b> our colleagues' true involvement. To be added once that data is available.</div>
+        <div class="wnote"><span class="wnote-tag">Data note</span> This dataset covers TA requests <b>led by the {PRAC_ADJ} team</b>, so it captures collaboration <b>on {PRAC_ADJ} requests</b> only. It does <b>not</b> yet include requests led by <b>other teams</b> where {PRAC_ADJ} staff collaborate — so the collaboration load shown here <b>understates</b> our colleagues' true involvement. To be added once that data is available.</div>
       </div>
       <div class="modebar"><span class="kpifl">Show</span><button class="wtoggle modetoggle on" data-mode="all" onclick="showMode('all')">Leads + all collaborators</button><button class="wtoggle modetoggle" data-mode="lead" onclick="showMode('lead')">Leads only</button><span class="muted" style="font-size:11.5px">applies to every chart below</span></div>
       <div class="card mt16">
         <div class="cardtitle">Staff supporting each thematic area — leads &amp; collaborators</div>
-        <div class="invcap">Distinct <b>people</b> supporting each area: those who <b>lead</b> it (blue), nutrition colleagues who <b>collaborate</b> (green), and people from other sectors / CO / RO who collaborate (amber). Someone who both leads and collaborates in an area is counted once, as a lead, so the segments sum to the area's headcount. The % is the collaborator share; hover any segment for its exact count.</div>
+        <div class="invcap">Distinct <b>people</b> supporting each area: those who <b>lead</b> it (blue), {PRAC_ADJ} colleagues who <b>collaborate</b> (green), and people from other sectors / CO / RO who collaborate (amber). Someone who both leads and collaborates in an area is counted once, as a lead, so the segments sum to the area's headcount. The % is the collaborator share; hover any segment for its exact count.</div>
         {area_legend}
         <div class="modepane" data-mode="all">{area_all}</div>
         <div class="modepane" data-mode="lead" style="display:none">{area_lead}</div>
       </div>
       <div class="card mt16">
-        <div class="cardtitle">Nutrition team workload — lead &amp; collaborator, per person</div>
-        <div class="invcap">Nutrition-team staff only, on a common scale — the growth between the two views is the hidden collaboration work. Hover a bar segment for the exact count.</div>
+        <div class="cardtitle">{GP_LABEL} team workload — lead &amp; collaborator, per person</div>
+        <div class="invcap">{GP_LABEL}-team staff only, on a common scale — the growth between the two views is the hidden collaboration work. Hover a bar segment for the exact count.</div>
         {inv_legend}
         <div class="modepane" data-mode="all"><div class="invscroll">{both_rows}</div></div>
         <div class="modepane" data-mode="lead" style="display:none"><div class="invscroll">{lead_rows}</div></div>
       </div>
       <div class="card mt16">
         <div class="cardtitle">Workload spread</div>
-        <div class="invcap">Average, minimum and maximum load — requests <b>led</b> only, or <b>total involvement</b> (leads + collaboration) across the nutrition team, per the toggle above.</div>
+        <div class="invcap">Average, minimum and maximum load — requests <b>led</b> only, or <b>total involvement</b> (leads + collaboration) across the {PRAC_ADJ} team, per the toggle above.</div>
         {spread_all}{spread_lead}
       </div>
       <div class="card mt16">
@@ -1134,7 +1149,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nutrition TA Management Dashboard</title>
+<title>{DASH_TITLE}</title>
 <style>
   * {{ box-sizing:border-box; }}
   body {{ margin:0; background:#EDF1F4; color:#0F2238; font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }}
@@ -1521,11 +1536,11 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 
   <header class="hd">
     <div>
-      <div class="eyebrow">Child Nutrition &amp; Development &middot; Technical Assistance</div>
-      <div class="h1">Nutrition TA Management Dashboard</div>
+      <div class="eyebrow">{EYEBROW}</div>
+      <div class="h1">{DASH_TITLE}</div>
     </div>
     <div class="meta">
-      <div><b>{len(PERF)}</b> CO requests &middot; <b>{len(staff)}</b> team members</div>
+      <div><b>{len(PERF)}</b> CO requests &middot; <b>{len(TEAM_ROSTER)}</b> team members</div>
       <div>Created Jan&ndash;Aug 2026 &middot; as of {TODAY_STR}</div>
     </div>
   </header>
@@ -1732,15 +1747,17 @@ function applyHub(){{
   }}
   var bubs=document.querySelectorAll('.wmbub');
   for(var k=0;k<bubs.length;k++){{ bubs[k].style.opacity=(selHub===null||bubs[k].getAttribute('data-hub')===selHub)?'':'0.28'; }}
-  // drive the "By CoE location" graph below: selected hub, or Nairobi by default
-  showLoc(selHub || 'nairobi');
+  // drive the "By CoE location" graph below: selected hub, or the busiest
+  // duty station (first CoE tab in the DOM) by default
+  var _t0=document.querySelector('.loctab');
+  showLoc(selHub || (_t0 ? _t0.getAttribute('data-loc') : ''));
   var hints=document.querySelectorAll('.wmhint');
   for(var h=0;h<hints.length;h++){{
     hints[h].textContent = selHub===null ? hints[h].getAttribute('data-idle')
       : 'Highlighting the countries this duty station supports — click it again, or the map, to reset.';
   }}
 }}
-(function(){{
+function __animFlows(){{
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var nums = document.querySelectorAll('.flownum');
   for(var i=0;i<nums.length;i++){{ (function(el,idx){{
@@ -1757,10 +1774,10 @@ function applyHub(){{
     }}
     setTimeout(function(){{ requestAnimationFrame(step); }}, delay);
   }})(nums[i],i); }}
-}})();
+}}
 
 /* ---- country profile ---- */
-var COUNTRY_DATA = {COUNTRY_JSON};
+/*__CD_START__*/var COUNTRY_DATA = {COUNTRY_JSON};/*__CD_END__*/
 function _cesc(s){{ return String(s).replace(/[&<>"]/g,function(m){{ return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[m]; }}); }}
 function _ck(label,val,sub,accent,color){{
   return '<div class="kpi" style="border-top:3px solid '+accent+'"><div class="kpilabel">'+label+'</div>'
@@ -1865,21 +1882,38 @@ function renderCountry(name){{
     +'<div class="mt16">'+areasCard+'</div>'
     +reqCard;
 }}
-(function(){{ var sel=document.getElementById('ctrySel'); if(sel){{ renderCountry(sel.value); }} }})();
+function __initGP(){{ __animFlows(); var sel=document.getElementById('ctrySel'); if(sel){{ renderCountry(sel.value); }} }}
+/*__JS_FUNCS_END__*/
+__initGP();
 </script>
 </body></html>'''
 
-with open(f'{OUT}/nutrition-ta-dashboard.html', 'w', encoding='utf-8') as f:
+_stem = f'nutrition-ta-dashboard-gp-{GP}' if os.environ.get('GP') else 'nutrition-ta-dashboard'
+with open(f'{OUT}/{_stem}.html', 'w', encoding='utf-8') as f:
     f.write(PAGE)
-print('wrote', f'{OUT}/nutrition-ta-dashboard.html', f'({len(PAGE)} bytes)')
+print('wrote', f'{OUT}/{_stem}.html', f'({len(PAGE)} bytes)')
 
 # Artifact-friendly partial: Artifacts inject their own <!doctype>/<head>/<body>,
 # so emit just the <style> block plus the page content (no document wrappers).
 style = PAGE[PAGE.index('<style>'):PAGE.index('</style>') + len('</style>')]
 inner = PAGE[PAGE.index('<div class="wrap">'):PAGE.index('</body>')]
-with open(f'{OUT}/nutrition-ta-dashboard.artifact.html', 'w', encoding='utf-8') as f:
+with open(f'{OUT}/{_stem}.artifact.html', 'w', encoding='utf-8') as f:
     f.write(style + '\n' + inner)
-print('wrote', f'{OUT}/nutrition-ta-dashboard.artifact.html')
+print('wrote', f'{OUT}/{_stem}.artifact.html')
+
+# ---- Global Practice bundle: pieces gen_dashboard.py stitches behind the
+# top-level Nutrition/Climate toggle. Only emitted when GP is explicitly set.
+if os.environ.get('GP'):
+    _si, _ss = PAGE.index('<script>') + len('<script>'), PAGE.index('/*__JS_FUNCS_END__*/')
+    js_funcs = PAGE[_si:_ss]
+    _cs, _ce = js_funcs.index('/*__CD_START__*/'), js_funcs.index('/*__CD_END__*/') + len('/*__CD_END__*/')
+    js_funcs = js_funcs[:_cs] + js_funcs[_ce:]          # strip the per-practice COUNTRY_DATA decl
+    wrap = PAGE[PAGE.index('<div class="wrap">'):PAGE.index('<script>')]
+    bundle = {'label': GP_LABEL, 'practice': PRACTICE, 'style': style,
+              'wrap': wrap, 'js_funcs': js_funcs, 'country': COUNTRY_DATA}
+    with open(f'{OUT}/_gp_{GP}.bundle.json', 'w', encoding='utf-8') as f:
+        json.dump(bundle, f, ensure_ascii=False)
+    print('wrote', f'{OUT}/_gp_{GP}.bundle.json')
 
 print('PERF universe:', len(PERF), '| active:', len(active), '| overdue:', len(overdue),
       '| onTrack:', onTrack, '| recent:', len(recent))

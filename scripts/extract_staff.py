@@ -20,10 +20,12 @@ import os
 import json
 
 # ---- source layout -------------------------------------------------------
-# Header row followed by one row per staff member.
-EXPECTED_HEADER = ('Name', 'Title', 'Thematic Area', 'Location')
+# Header row followed by one row per staff member. The roster now spans both
+# Global Practices (Child Nutrition and Development, Climate Resilience for
+# Children), so the second column carries the practice each person belongs to.
+EXPECTED_HEADER = ('Name', 'Global Practice', 'Thematic Area', 'Location')
 
-C_NAME, C_TITLE, C_AREA, C_LOCATION = 0, 1, 2, 3
+C_NAME, C_PRACTICE, C_AREA, C_LOCATION = 0, 1, 2, 3
 
 
 def s(v):
@@ -53,7 +55,7 @@ def build(r):
     """One roster row -> one Staff record (see app/src/data/types.ts)."""
     return {
         'name': s(r[C_NAME]),
-        'title': s(r[C_TITLE]) if len(r) > C_TITLE else '',
+        'practice': s(r[C_PRACTICE]) if len(r) > C_PRACTICE else '',
         'area': s(r[C_AREA]) if len(r) > C_AREA else '',
         'location': s(r[C_LOCATION]) if len(r) > C_LOCATION else '',
     }
