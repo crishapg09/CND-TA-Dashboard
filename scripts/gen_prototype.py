@@ -409,12 +409,26 @@ import worldmap
 flowcases = [c for c in cases if c['status'] != 'Discontinued']
 # duty station of each request = its TA lead's location (from the enriched roster)
 HUB_META = {  # name: (lon, lat, label-anchor, colour)
+    # Primary duty stations
     'Nairobi':  (36.82, -1.29, 'top',   '#0B6FA4'),
     'Bangkok':  (100.50, 13.75, 'right', '#2E7D5B'),
     'Amman':    (35.93, 31.95, 'top',   '#7A4FB0'),
     'Brussels': (4.35, 50.85, 'top',    '#1CABE2'),
     'Panama':   (-79.52, 8.98, 'left',  '#C87A2E'),
     'New York': (-74.01, 40.71, 'left', '#43586B'),
+    # Additional duty stations from the roster (esp. the Climate team)
+    'Florence': (11.26, 43.77, 'left',  '#C0453F'),
+    'Brazil':   (-47.93, -15.79, 'left', '#2C8C6B'),
+    'London':   (-0.13, 51.51, 'left',  '#8A5A9E'),
+    'Beirut':   (35.50, 33.89, 'right', '#D0902E'),
+    'Dubai':    (55.27, 25.20, 'right', '#A85D3A'),
+    'Almaty':   (76.89, 43.24, 'top',   '#4F7CAC'),
+    'Valencia': (-0.38, 39.47, 'left',  '#C25E7A'),
+    'Canada':   (-75.70, 45.42, 'top',  '#5B8A72'),
+    'Dakar':    (-17.44, 14.72, 'left', '#C9A22E'),
+    'Kathmandu':(85.32, 27.71, 'top',   '#7E6BA8'),
+    'Beijing':  (116.41, 39.90, 'right', '#A0453F'),
+    'Maldives': (73.51, 4.17, 'right',  '#2F9FB5'),
 }
 
 def hub_of(c):
