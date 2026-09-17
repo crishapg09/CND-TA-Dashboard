@@ -43,6 +43,22 @@ PRAC_ADJ = GP_LABEL.lower()   # "nutrition" / "climate" — used in body copy
 TODAY_STR = (EPOCH + datetime.timedelta(days=TODAY)).strftime('%-d %b %Y')      # e.g. 29 Jul 2026
 WIN_STR = (EPOCH + datetime.timedelta(days=TODAY - 30)).strftime('%-d %b %Y')   # e.g. 29 Jun 2026
 
+# The span the requests were created in, derived from the data rather than
+# hard-coded, so the header cannot drift out of date as new exports land.
+# Reads "Jan–Sep 2026", or "Nov 2025–Sep 2026" if the span crosses a year.
+def _created_span(rows):
+    ds = [EPOCH + datetime.timedelta(days=c['cr']) for c in rows if c.get('cr')]
+    if not ds:
+        return ''
+    lo, hi = min(ds), max(ds)
+    if (lo.year, lo.month) == (hi.year, hi.month):
+        return f'{lo:%b %Y}'
+    if lo.year == hi.year:
+        return f'{lo:%b}&ndash;{hi:%b} {hi.year}'
+    return f'{lo:%b %Y}&ndash;{hi:%b %Y}'
+
+CREATED_SPAN = _created_span(cases)
+
 STATUS_ORDER = ['0%', '25%', '50%', '75%', '100%', 'Unassigned']
 SC = {'0%': '#D6E0E8', '25%': '#9CC6E0', '50%': '#5BA3D0', '75%': '#2C7DB5',
       '100%': '#0B5A8A', 'Discontinued': '#9AA7B2', 'Unassigned': '#E0A21E'}
@@ -1555,7 +1571,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     </div>
     <div class="meta">
       <div><b>{len(PERF)}</b> CO requests &middot; <b>{len(TEAM_ROSTER)}</b> team members</div>
-      <div>Created Jan&ndash;Aug 2026 &middot; as of {TODAY_STR}</div>
+      <div>Created {CREATED_SPAN} &middot; as of {TODAY_STR}</div>
     </div>
   </header>
 

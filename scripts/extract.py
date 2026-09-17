@@ -144,17 +144,39 @@ def fmt_date(serial_day):
     return d.strftime('%-d %b %Y'), d
 
 
-def update_labels(app_dir, today_serial, n_rows):
-    """Rewrite the hard-coded 'as of …' date strings so the UI matches the data."""
+def created_span(records):
+    """The span the requests were created in, e.g. "Jan–Sep 2026" — derived from
+    the data so the UI's "Created …" labels cannot drift out of date."""
+    ds = [fmt_date(r['cr'])[1] for r in records if r.get('cr')]
+    if not ds:
+        return ''
+    lo, hi = min(ds), max(ds)
+    if (lo.year, lo.month) == (hi.year, hi.month):
+        return f'{lo:%b %Y}'
+    if lo.year == hi.year:
+        return f'{lo:%b}–{hi:%b} {hi.year}'
+    return f'{lo:%b %Y}–{hi:%b %Y}'
+
+
+def update_labels(app_dir, today_serial, n_rows, span):
+    """Rewrite the hard-coded 'as of …'/'Created …' strings so the UI matches
+    the data. `span` is created_span(records) — see above."""
     today_str, today_dt = fmt_date(today_serial)
     win_dt = today_dt - datetime.timedelta(days=30)
     win_full = win_dt.strftime('%-d %b %Y')   # e.g. "17 Jun 2026"
     win_short = win_dt.strftime('%-d %b')      # e.g. "17 Jun"
     n_str = f'{n_rows:,}'
+    # The .tsx source writes the dash as the &ndash; entity; .ts comments use a
+    # literal en dash. Match either, and replace in kind.
+    span_ent = span.replace('–', '&ndash;')
 
     edits = [
         ('src/components/Header.tsx',
          r'as of \d+ \w+ \d{4}', f'as of {today_str}'),
+        ('src/components/Header.tsx',
+         r'Created \w+(?:&ndash;|–|-)?\w* ?\d{4}', f'Created {span_ent}'),
+        ('src/data/cases.ts',
+         r'case export, \w+(?:&ndash;|–|-)?\w* ?\d{4}', f'case export, {span}'),
         ('src/components/PerformanceView.tsx',
          r'between \d+ \w+ and \d+ \w+ \d{4}', f'between {win_short} and {today_str}'),
         ('src/components/PerformanceView.tsx',
@@ -200,7 +222,7 @@ def main():
     with open(os.path.join(data_dir, 'today.json'), 'w', encoding='utf-8') as f:
         json.dump(today, f)
 
-    today_str = update_labels(app_dir, today, len(records))
+    today_str = update_labels(app_dir, today, len(records), created_span(records))
 
     from collections import Counter
     dist = dict(Counter(c['status'] for c in records))
