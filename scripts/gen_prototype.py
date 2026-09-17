@@ -1084,7 +1084,7 @@ def render_work(rows):
         {spread_all}{spread_lead}
       </div>
       <div class="card mt16">
-        <div class="cardtitle">Busiest TA lead staff — led work by status, plus collaboration</div>
+        <div class="cardtitle">Implementation status by lead staff</div>
         <div class="invcap">Each bar is a lead's requests coloured by status, extended by the requests they also collaborate on (teal). Number is requests led, with collaborations as <b style="color:{COLLAB_C}">+n</b>. Hover a segment for detail.</div>
         {busy_legend}
         <div class="modepane" data-mode="all"><div class="leadgrid">{busy_all}</div></div>
