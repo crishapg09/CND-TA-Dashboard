@@ -81,6 +81,23 @@ def _has_details(v):
     return 1 if t.strip() else 0
 
 
+# Case-export name -> staff-roster name, for people the export records under a
+# fuller or differently-spelled name than the roster carries. Without this they
+# never join the roster, so their requests show no thematic area and no duty
+# station (they fall off the flow map). Applied to leads and collaborators alike
+# so one person is not internal as a lead and external as a collaborator.
+#
+# Add an entry only when the two names are confirmed to be the same person.
+NAME_ALIASES = {
+    'Maria Del Carmen Porras Perez Guerrero': 'Maria Porras',
+}
+
+
+def alias(name):
+    """Normalise an export name to the roster's spelling (see NAME_ALIASES)."""
+    return NAME_ALIASES.get(name, name)
+
+
 def _collab(v, lead):
     """Comma-separated collaborator names -> ordered, de-duped list.
     Blank entries and the request's own lead are dropped so a person is never
@@ -89,7 +106,7 @@ def _collab(v, lead):
         return []
     out, seen = [], set()
     for name in str(v).split(','):
-        name = name.strip()
+        name = alias(name.strip())
         key = name.lower()
         # skip blanks, the request's own lead, and non-human system/test accounts
         # (the "DEV-…" service account and "System Administrator" that appear as
@@ -125,9 +142,10 @@ def build(r):
         'id': s(r[C_ID]), 'type': s(r[C_TYPE]),
         'region': s(r[C_REGION]), 'office': s(r[C_OFFICE]),
         'practice': s(r[C_PRACTICE]), 'offer': s(r[C_OFFER]), 'modality': s(r[C_MODALITY]),
-        'status': s(r[C_STATUS]), 'lead': s(r[C_LEAD]),
+        'status': s(r[C_STATUS]), 'lead': alias(s(r[C_LEAD])),
         # Collaborators: comma-separated names -> de-duped list, excluding the lead
-        'collab': _collab(r[C_COLLAB], s(r[C_LEAD])),
+        # (aliased too, so the lead is still recognised and dropped)
+        'collab': _collab(r[C_COLLAB], alias(s(r[C_LEAD]))),
         'reqFor': s(r[C_REQFOR]), 'desc': s(r[C_SHORT]),
         # long Description, falling back to the short description when blank
         'full': s(r[C_DESC]) if r[C_DESC] else s(r[C_SHORT]),
