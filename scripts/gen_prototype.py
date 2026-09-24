@@ -118,22 +118,28 @@ def seg_bar(segs, width_pct, h=12, track='#EEF2F6'):
             f'<div class="bar" style="height:100%;width:{width_pct:.1f}%;border-radius:{h/2}px">{inner}</div></div>')
 
 def barlist(items, color, track='#E9F0F6', label_w=64, empty='None in the current filter.',
-            right=False, pct=False, denom=None):
+            right=False, pct=False, denom=None, drill_fn=None):
     """pct=True adds a % column. By default it's each row's share of the chart
     total; pass `denom` (a {label: total} map) to show each row as a share of
-    that category's own portfolio instead."""
+    that category's own portfolio instead. drill_fn(label, n, pct) -> drill
+    attributes makes each row's label and whole track a drill-down."""
     if not items: return f'<div class="muted">{empty}</div>'
     mx = max(n for _, n in items) or 1
     tot = sum(n for _, n in items) or 1
     lblcls = 'bllabel right' if right else 'bllabel'
-    cols = f'{label_w}px 1fr 34px' + (' 44px' if pct else '')
+    # label column is up to label_w wide but may shrink, so on a narrow screen
+    # the bar keeps some width (a fixed width left the bars 0px wide on phones)
+    cols = f'minmax(min({label_w}px,96px),{label_w}px) minmax(40px,1fr) 34px' + (' 44px' if pct else '')
+    h = 12 if drill_fn else 9    # taller when clickable: an easier target
     rows = ''
     for label, n in items:
         d = (denom.get(label, n) if denom else tot) or 1
-        pcttd = f'<div class="blpct">{round(100 * n / d)}%</div>' if pct else ''
+        p = round(100 * n / d)
+        pcttd = f'<div class="blpct">{p}%</div>' if pct else ''
+        da = (' ' + drill_fn(label, n, p)) if drill_fn else ''
         rows += (f'<div class="blrow" style="grid-template-columns:{cols}">'
-                 f'<div class="{lblcls}">{esc(label)}</div>'
-                 f'<div class="track" style="height:9px;background:{track};border-radius:5px"><div style="height:100%;width:{100*n/mx:.1f}%;background:{color};border-radius:5px"></div></div>'
+                 f'<div class="{lblcls}{" dq-lbl" if drill_fn else ""}"{da}>{esc(label)}</div>'
+                 f'<div class="track{" dq-seg" if drill_fn else ""}"{da} style="height:{h}px;background:{track};border-radius:5px"><div style="height:100%;width:{100*n/mx:.1f}%;background:{color};border-radius:5px"></div></div>'
                  f'<div class="bln">{n}</div>{pcttd}</div>')
     return rows
 
@@ -539,17 +545,44 @@ ready0 = [c for c in zeroReq if c['hd'] and c['lead'] and c['xc'] is not None]
 # charted. An Unassigned request has no lead and so no thematic area; those are
 # covered by Setup status and Time in setup instead.
 SETUP_SEGS = [('stalled', 'stalled (no progress 30+ days)', '#CD6A2E'),
-              ('moving', 'not stalled', '#9CC6E0')]
-_sa = defaultdict(lambda: {'stalled': 0, 'moving': 0})
+              ('notstalled', 'not stalled', '#9CC6E0')]
+_sa = defaultdict(lambda: {'stalled': 0, 'notstalled': 0})
 for c in zeroReq:
-    _sa[c['area']]['stalled' if is_stalled(c) else 'moving'] += 1
+    _sa[c['area']]['stalled' if is_stalled(c) else 'notstalled'] += 1
 setup_area_rows = sorted(_sa.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))
+
+
+# ---- Drill-down from Data Quality charts into the table at the foot of the tab.
+# Each table row carries space-separated tags (data-tags); each clickable chart
+# element names the table (recv / over) and the tags a row must have to be
+# shown (data-need). One mechanism, one tooltip format and one banner serve
+# every drillable chart (see filterDq / drillTip in the page JS).
+def area_tag(area):
+    return 'a-' + slug(area)
+
+
+def sev_tag(c):
+    d = TODAY - c['xc']
+    return 'sev1' if d <= 30 else 'sev2' if d <= 60 else 'sev3'
+
+
+def drill(tbl, need, title, line, what, area=''):
+    """Attributes that make an element a drill-down: tooltip (title / line /
+    "See these requests"), click or Enter/Space to filter the table."""
+    return (f'data-tbl="{tbl}" data-need="{esc(need)}" data-title="{esc(title)}" data-line="{esc(line)}" '
+            f'data-what="{esc(what)}" data-area="{esc(area)}" role="button" tabindex="0" onclick="filterDq(this)" '
+            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();filterDq(this);}}" '
+            f'onmouseenter="drillTip(event,this)" onmousemove="mapTipMove(event)" onmouseleave="mapTipHide()"')
+
+
+def _pl(n):
+    return '' if n == 1 else 's'
 
 
 def setup_area_chart(rows, label_w=340):
     """Stacked bar per thematic area. Labels wrap rather than truncate.
     Each segment, and each area name, filters the Received & in review table
-    below to those requests and scrolls to it (see filterRecv in the page JS)."""
+    below to those requests and scrolls to it (see drill() / filterDq)."""
     if not rows:
         return '<div class="muted">No requests at 0%.</div>'
     used = [k for k, _, _ in SETUP_SEGS if any(v[k] for _, v in rows)]
@@ -559,24 +592,20 @@ def setup_area_chart(rows, label_w=340):
     mx = max(sum(v.values()) for _, v in rows) or 1
     out = f'<div class="legend" style="margin-bottom:14px;align-items:center">{legend}</div>'
 
-    def hit(area, kind, n, desc):
-        return (f'data-area="{esc(area)}" data-kind="{kind}" data-n="{n}" data-desc="{esc(desc)}" '
-                f'role="button" tabindex="0" onclick="filterRecv(this)" '
-                f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();filterRecv(this);}}" '
-                f'onmouseenter="setupTip(event,this)" onmousemove="mapTipMove(event)" onmouseleave="mapTipHide()"')
-
     for area, v in rows:
         tot = sum(v.values())
         st = v['stalled']
+        at = area_tag(area)
         segs = ''.join(
-            f'<span class="sa-seg" {hit(area, k, v[k], lab)} '
+            f'<span class="dq-seg" {drill("recv", f"{at} st-0 {k}", area, f"{v[k]} at 0%, {lab}", f"at 0%, {lab}", area)} '
             f'style="width:{100 * v[k] / mx:.2f}%;background:{col}"></span>'
             for k, lab, col in SETUP_SEGS if v[k])
+        lbl_attrs = drill('recv', f'{at} st-0', area, f'{tot} request{_pl(tot)} at 0%', 'at 0%', area)
         note = (f'<span style="color:#CD6A2E;font-weight:700">{st} stalled</span>' if st
                 else '<span style="color:#9AA7B2">none stalled</span>')
         # label column is up to label_w wide, shrinking on narrow screens
         out += (f'<div class="blrow" style="grid-template-columns:minmax(96px,{label_w}px) minmax(40px,1fr) 112px;margin-bottom:11px">'
-                f'<div class="bllabel sa-lbl" {hit(area, "all", tot, "at 0%")} style="white-space:normal;overflow:visible;line-height:1.3">{esc(area)}</div>'
+                f'<div class="bllabel dq-lbl" {lbl_attrs} style="white-space:normal;overflow:visible;line-height:1.3">{esc(area)}</div>'
                 f'<div class="track" style="height:16px;background:#EEF2F6;border-radius:6px">'
                 f'<div class="bar" style="height:100%">{segs}</div></div>'
                 f'<div class="bln" style="font-size:12px"><b style="color:#0F2238">{tot}</b> &middot; {note}</div></div>')
@@ -678,8 +707,19 @@ dq_overdue_area = [(k, len(v)) for k, v in groupby_area(dq_overdue)]
 
 # overdue severity as a single full-width stacked bar
 _sevtot = sum(n for _, n, _ in dq_ob) or 1
-_sevseg = ''.join(f'<span style="width:{100*n/_sevtot:.2f}%;background:{col}"></span>' for _, n, col in dq_ob)
-_sevlabels = ''.join(f'<span style="color:{col}">{n} &middot; {esc(lab)}</span>' for lab, n, col in dq_ob)
+# drill-down: each band's segment and its "N · band" label filter the Overdue
+# table (the label is the easy target when a segment is thin; an empty band has
+# neither a segment nor a clickable label)
+_SEV = [('sev1', 'by 1–30 days'), ('sev2', 'by 31–60 days'), ('sev3', 'by more than 60 days')]
+def _sevdrill(i, n):
+    tag, by = _SEV[i]
+    return drill('over', tag, f'Overdue {by}', f'{n} request{_pl(n)} past their target date {by}', f'overdue {by}')
+_sevseg = ''.join(f'<span class="dq-seg" {_sevdrill(i, n)} style="width:{100*n/_sevtot:.2f}%;background:{col}"></span>'
+                  for i, (_, n, col) in enumerate(dq_ob) if n)
+_sevlabels = ''.join(
+    (f'<span class="dq-lbl" {_sevdrill(i, n)} style="color:{col}">{n} &middot; {esc(lab)}</span>' if n
+     else f'<span style="color:{col}">{n} &middot; {esc(lab)}</span>')
+    for i, (lab, n, col) in enumerate(dq_ob))
 _sevleg = ''.join(f'<div class="lg"><span class="lgdot" style="background:{col}"></span>{esc(lab)}</div>' for lab, n, col in dq_ob)
 _sevbig = max(dq_ob, key=lambda x: x[1])
 overdue_sev_card = (
@@ -707,12 +747,15 @@ for c in _recv_rows:
 # setup request must be in it for the filtered counts to match the bars.
 recv_tbl = req_table('Received & in review — Unassigned · 0%', _recv_rows, 'Days in stage', '#CD6A2E',
                      cols=_dqhead + ['Days in stage'],
-                     row_attrs=lambda c: (f'data-area="{esc(c["area"])}" data-st="{esc(c["status"])}" '
-                                          f'data-stalled="{1 if is_stalled(c) else 0}"'))
+                     row_attrs=lambda c: (f'data-tags="{area_tag(c["area"])} '
+                                          f'st-{"0" if c["status"] == "0%" else "u"} '
+                                          f'{"stalled" if is_stalled(c) else "notstalled"}"'))
 for c in dq_overdue:
     c['_m'] = '+' + str(round(TODAY - c['xc'])) + 'd'
-over_tbl = req_table('Overdue — active requests past their target date', dq_overdue[:80], 'Days over', '#C0453F',
-                     cols=_dqhead + ['Days over'])
+# Not capped either: the overdue charts filter this table (see drill()).
+over_tbl = req_table('Overdue — active requests past their target date', dq_overdue, 'Days over', '#C0453F',
+                     cols=_dqhead + ['Days over'],
+                     row_attrs=lambda c: f'data-tags="{area_tag(c["area"])} {sev_tag(c)}"')
 _done_rows = sorted(completedC, key=lambda c: -((c['cl'] if c['cl'] is not None else c['rs']) or 0))
 for c in _done_rows:
     c['_m'] = fmtdate(c['cl']) if c['cl'] else 'not closed'
@@ -1326,10 +1369,11 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .grid13 {{ display:grid; grid-template-columns:1fr 2fr; gap:16px; align-items:stretch; }}
   @media (max-width:720px) {{ .grid13 {{ grid-template-columns:1fr; }} }}
   /* clickable "At 0%, by thematic area" bars -> filter the table below */
-  .sa-seg {{ cursor:pointer; transition:filter .12s; }}
-  .sa-seg:hover, .sa-seg:focus-visible {{ filter:brightness(.88); outline:none; }}
-  .sa-lbl {{ cursor:pointer; }}
-  .sa-lbl:hover, .sa-lbl:focus-visible {{ color:#0B5A8A; text-decoration:underline; outline:none; }}
+  .dq-seg {{ cursor:pointer; transition:filter .12s; }}
+  .dq-seg:hover, .dq-seg:focus-visible {{ filter:brightness(.88); outline:none; }}
+  .dq-lbl {{ cursor:pointer; }}
+  .dq-lbl:hover, .dq-lbl:focus-visible {{ text-decoration:underline; outline:none; }}
+  .bllabel.dq-lbl:hover, .bllabel.dq-lbl:focus-visible {{ color:#0B5A8A; }}
   .dqfilter {{ align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:16px; padding:10px 14px; border-radius:9px; background:#EAF3FA; border:1px solid #CFE2F0; font-size:12.5px; color:#0F2238; transition:box-shadow .3s; }}
   .dqfilter.flash {{ box-shadow:0 0 0 4px rgba(11,111,164,.25); }}
   .dqfilter-x {{ cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; padding:5px 11px; border-radius:7px; border:1px solid #B9D3E6; background:#fff; color:#0B5A8A; }}
@@ -1751,12 +1795,12 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       </div>
     </div>
     {overdue_sev_card}
-    <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=270, pct=True)}</div>
+    <div class="card mt16"><div class="cardtitle">Overdue by thematic area</div>{barlist(dq_overdue_area, '#C0453F', '#F2EAE9', label_w=270, pct=True, drill_fn=lambda a, n, p: drill('over', area_tag(a), a, f'{n} overdue request{_pl(n)} · {p}% of all overdue', 'overdue', a))}</div>
 
     {dqsec(4, 'All requests — filter and browse', 'One table for the whole lifecycle. Switch between received & in review, overdue, and completed.')}
     <div class="dqtogs"><button class="dtoggle dqtog on" data-dqt="recv" onclick="showDqt('recv')">Received &amp; in review <b>{len(setupSet)}</b></button><button class="dtoggle dqtog" data-dqt="over" onclick="showDqt('over')">Overdue <b>{len(dq_overdue)}</b></button><button class="dtoggle dqtog" data-dqt="done" onclick="showDqt('done')">Completed <b>{len(completedC)}</b></button></div>
-    <div class="dqtblbox" data-dqt="recv"><div class="dqfilter" style="display:none"><span class="dqfilter-txt"></span><button class="dqfilter-x" onclick="clearRecvFilter()">Clear filter &times;</button></div>{recv_tbl}</div>
-    <div class="dqtblbox" data-dqt="over" style="display:none">{over_tbl}</div>
+    <div class="dqtblbox" data-dqt="recv"><div class="dqfilter" style="display:none"><span class="dqfilter-txt"></span><button class="dqfilter-x" onclick="clearDqFilter()">Clear filter &times;</button></div>{recv_tbl}</div>
+    <div class="dqtblbox" data-dqt="over" style="display:none"><div class="dqfilter" style="display:none"><span class="dqfilter-txt"></span><button class="dqfilter-x" onclick="clearDqFilter()">Clear filter &times;</button></div>{over_tbl}</div>
     <div class="dqtblbox" data-dqt="done" style="display:none">{done_tbl}</div>
   </div>
 
@@ -1807,39 +1851,43 @@ function showTbl(id){{
   var ts=document.querySelectorAll('.dtoggle');
   for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-tbl')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
 }}
-/* "At 0%, by thematic area": hover a segment or area name for a tooltip; click
-   to filter the Received & in review table below to those requests. */
-function setupTip(e,el){{
+/* Drill-down from Data Quality charts (see drill() in the generator): hover for
+   a tooltip; click to filter the named table (data-tbl) to rows carrying every
+   tag in data-need, and scroll to it. */
+var _drillAt=0;   // time of the last drill click
+function drillTip(e,el){{
+  // while the page scrolls to the table after a click, other charts slide under
+  // the resting pointer; don't let them pop tooltips over the result
+  if(Date.now()-_drillAt<1200) return;
   var t=document.getElementById('maptip'); if(!t) return;
-  var n=el.getAttribute('data-n'), k=el.getAttribute('data-kind'), d=el.getAttribute('data-desc');
-  var line=(k==='all') ? (n+' request'+(n==='1'?'':'s')+' at 0%') : (n+' at 0%, '+d);
-  t.innerHTML='<div class="maptip-title"></div><div class="maptip-sub" style="margin:4px 0 8px">'+line+'</div>'
+  t.innerHTML='<div class="maptip-title"></div><div class="maptip-sub" style="margin:4px 0 8px"></div>'
     +'<div style="font-weight:700;color:#8FD0F2">See these requests &darr;</div>';
-  t.firstChild.textContent=el.getAttribute('data-area');
+  t.children[0].textContent=el.getAttribute('data-title');
+  t.children[1].textContent=el.getAttribute('data-line');
   t.style.display='block'; mapTipMove(e);
 }}
-function clearRecvFilter(){{
-  var box=document.querySelector('.dqtblbox[data-dqt="recv"]'); if(!box) return;
-  var rs=box.querySelectorAll('.trow');
+function clearDqFilter(){{
+  var rs=document.querySelectorAll('.dqtblbox .trow');
   for(var i=0;i<rs.length;i++){{ rs[i].style.display=''; }}
-  var f=box.querySelector('.dqfilter'); if(f){{ f.style.display='none'; }}
+  var fs=document.querySelectorAll('.dqtblbox .dqfilter');
+  for(var j=0;j<fs.length;j++){{ fs[j].style.display='none'; }}
 }}
-function filterRecv(el){{
-  mapTipHide();
-  var area=el.getAttribute('data-area'), kind=el.getAttribute('data-kind');
-  showDqt('recv');
-  var box=document.querySelector('.dqtblbox[data-dqt="recv"]'); if(!box) return;
+function filterDq(el){{
+  _drillAt=Date.now(); mapTipHide();
+  var tbl=el.getAttribute('data-tbl'), need=el.getAttribute('data-need').split(' ');
+  var area=el.getAttribute('data-area'), what=el.getAttribute('data-what');
+  showDqt(tbl);
+  var box=document.querySelector('.dqtblbox[data-dqt="'+tbl+'"]'); if(!box) return;
   var rs=box.querySelectorAll('.trow'), n=0;
   for(var i=0;i<rs.length;i++){{
-    var r=rs[i];
-    var ok=r.getAttribute('data-area')===area && r.getAttribute('data-st')==='0%'
-      && (kind==='all' || (kind==='stalled')===(r.getAttribute('data-stalled')==='1'));
-    r.style.display=ok?'':'none'; if(ok){{ n++; }}
+    var tags=' '+(rs[i].getAttribute('data-tags')||'')+' ', ok=true;
+    for(var k=0;k<need.length;k++){{ if(tags.indexOf(' '+need[k]+' ')<0){{ ok=false; break; }} }}
+    rs[i].style.display=ok?'':'none'; if(ok){{ n++; }}
   }}
-  var what=(kind==='all') ? 'at 0%' : (kind==='stalled' ? 'at 0% and stalled (no progress 30+ days)' : 'at 0%, not stalled');
   var f=box.querySelector('.dqfilter'), txt=f.querySelector('.dqfilter-txt');
-  txt.innerHTML='Showing <b>'+n+'</b> request'+(n===1?'':'s')+' '+what+' in <b></b>';
-  txt.lastChild.textContent=area;
+  txt.innerHTML='Showing <b>'+n+'</b> request'+(n===1?'':'s')+' <span></span>'+(area?' in <b></b>':'');
+  txt.querySelector('span').textContent=what;
+  if(area){{ txt.lastChild.textContent=area; }}
   f.style.display='flex';
   var body=box.querySelector('.tbody'); if(body){{ body.scrollTop=0; }}
   var y=box.getBoundingClientRect().top+window.pageYOffset-80;
@@ -1847,7 +1895,7 @@ function filterRecv(el){{
   f.classList.add('flash'); setTimeout(function(){{ f.classList.remove('flash'); }},1200);
 }}
 function showDqt(id){{
-  clearRecvFilter();   // switching the table's own toggle drops any chart filter
+  clearDqFilter();   // switching the table's own toggle drops any chart filter
   var bs=document.querySelectorAll('.dqtblbox');
   for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-dqt')===id ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.dqtog');
