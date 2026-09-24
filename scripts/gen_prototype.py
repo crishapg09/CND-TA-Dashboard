@@ -532,21 +532,22 @@ zero_by_area = [(k, len(v)) for k, v in groupby_area([c for c in setupSet if c['
 zeroReq = [c for c in setupSet if c['status'] == '0%']
 ready0 = [c for c in zeroReq if c['hd'] and c['lead'] and c['xc'] is not None]
 
-# Merged "Unassigned and at 0%" chart: one bar per thematic area of its
-# requests in setup, split by setup status. Colours match the Setup status
-# chart above.
-SETUP_SEGS = [('Unassigned', 'Unassigned', stage_color['Unassigned']),
-              ('0%', 'At 0%', stage_color['0%'])]
-_sa = defaultdict(lambda: {'Unassigned': 0, '0%': 0})
-for c in setupSet:
-    _sa[c['area']][c['status']] += 1
+# "At 0%, by thematic area": one bar per area of its requests at 0%, with the
+# stalled ones (no progress 30+ days) as an orange slice. Only 0% requests are
+# charted. An Unassigned request has no lead and so no thematic area; those are
+# covered by Setup status and Time in setup instead.
+SETUP_SEGS = [('stalled', 'Stalled (no progress 30+ days)', '#CD6A2E'),
+              ('moving', 'Not stalled', '#9CC6E0')]
+_sa = defaultdict(lambda: {'stalled': 0, 'moving': 0})
+for c in zeroReq:
+    _sa[c['area']]['stalled' if is_stalled(c) else 'moving'] += 1
 setup_area_rows = sorted(_sa.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))
 
 
 def setup_area_chart(rows, label_w=340):
     """Stacked bar per thematic area. Labels wrap rather than truncate."""
     if not rows:
-        return '<div class="muted">No requests in setup.</div>'
+        return '<div class="muted">No requests at 0%.</div>'
     used = [k for k, _, _ in SETUP_SEGS if any(v[k] for _, v in rows)]
     legend = ''.join(f'<div class="lg"><span class="lgdot" style="background:{col}"></span>{lab}</div>'
                      for k, lab, col in SETUP_SEGS if k in used)
@@ -554,12 +555,12 @@ def setup_area_chart(rows, label_w=340):
     out = f'<div class="legend" style="margin-bottom:14px">{legend}</div>'
     for area, v in rows:
         tot = sum(v.values())
-        un = v['Unassigned']
+        st = v['stalled']
         segs = ''.join(
             f'<span title="{esc(lab)}: {v[k]}" style="width:{100 * v[k] / mx:.2f}%;background:{col}"></span>'
             for k, lab, col in SETUP_SEGS if v[k])
-        note = (f'<span style="color:#B8841A;font-weight:700">{un} unassigned</span>' if un
-                else '<span style="color:#9AA7B2">all at 0%</span>')
+        note = (f'<span style="color:#CD6A2E;font-weight:700">{st} stalled</span>' if st
+                else '<span style="color:#9AA7B2">none stalled</span>')
         # label column is up to label_w wide, shrinking on narrow screens
         out += (f'<div class="blrow" style="grid-template-columns:minmax(96px,{label_w}px) minmax(40px,1fr) 112px;margin-bottom:11px">'
                 f'<div class="bllabel" style="white-space:normal;overflow:visible;line-height:1.3">{esc(area)}</div>'
@@ -622,16 +623,17 @@ lead_but_unassigned = sorted((c for c in co if c['status'] == 'Unassigned' and c
 def lead_unassigned_card(rows, show=8):
     n = len(rows)
     color = '#E0A21E' if n else '#2E7D5B'
+    # two lines per request (ID, then lead · area): it sits in a narrow column
     items = ''.join(
-        f'<div style="display:grid;grid-template-columns:96px 1fr;gap:10px;padding:6px 0;border-top:1px solid #F1F4F7;font-size:12px">'
-        f'<span style="font-weight:700;color:#0B5A8A;font-variant-numeric:tabular-nums">{esc(c["id"])}</span>'
-        f'<span style="color:#43586B">{esc(c["lead"])}<span style="color:#9AA7B2"> &middot; {esc(c["area"])}</span></span></div>'
+        f'<div style="padding:7px 0;border-top:1px solid #F1F4F7;font-size:12px;line-height:1.4">'
+        f'<div style="font-weight:700;color:#0B5A8A;font-variant-numeric:tabular-nums">{esc(c["id"])}</div>'
+        f'<div style="color:#43586B">{esc(c["lead"])}<span style="color:#9AA7B2"> &middot; {esc(c["area"])}</span></div></div>'
         for c in rows[:show])
     more = f'<div class="muted" style="margin-top:6px">+{n - show} more</div>' if n > show else ''
     return (f'<div class="card"><div class="cardtitle">Lead assigned, status still Unassigned</div>'
             f'<div style="display:flex;align-items:baseline;gap:10px">'
             f'<div class="score" style="color:{color}">{n}</div>'
-            f'<div class="muted">requests have a lead in &ldquo;Assigned to&rdquo; but their implementation status was never moved off Unassigned</div></div>'
+            f'<div class="muted" style="line-height:1.45">requests have a lead in &ldquo;Assigned to&rdquo; but their status still reads Unassigned</div></div>'
             f'{"<div style=margin-top:12px>" + items + more + "</div>" if n else ""}</div>')
 
 # stage 3
@@ -1666,11 +1668,14 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       <div class="card"><div class="cardtitle" style="margin-bottom:4px">Time in setup</div><div class="muted" style="margin-bottom:14px">Days since a request was received (Unassigned) or last updated (0%). Counted as <b>stalled</b> after 14 days while Unassigned, 30 days once at 0%.</div>{bucket_bars(aging, label_w=110)}</div>
     </div>
     <div class="grid31 mt16">
-      <div class="card"><div class="cardtitle" style="margin-bottom:4px">Unassigned and at 0%, by thematic area</div><div class="muted" style="margin-bottom:14px">Each bar is an area&rsquo;s requests in setup, split into Unassigned and at 0%.</div>{setup_area_chart(setup_area_rows)}</div>
-      <div class="card" style="background:#EEF7F2;border:1px solid #CDE7DB;display:flex;flex-direction:column;justify-content:center">
-        <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#2C6E58;font-weight:700">Ready to advance</div>
-        <div style="margin:8px 0 6px"><span style="font-size:40px;font-weight:700;color:#2E7D5B;letter-spacing:-.02em;font-variant-numeric:tabular-nums">{len(ready0)}</span><span style="font-size:17px;color:#7FB49C;font-weight:600"> / {len(zeroReq)}</span></div>
-        <div class="muted" style="line-height:1.5">requests at 0% already have a description, a lead and a target date — ready to move to 25%.</div>
+      <div class="card"><div class="cardtitle" style="margin-bottom:4px">At 0%, by thematic area</div><div class="muted" style="margin-bottom:14px">Each bar is an area&rsquo;s requests at 0%; the orange slice is the part with no progress for 30+ days.</div>{setup_area_chart(setup_area_rows)}</div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card" style="flex:1;background:#EEF7F2;border:1px solid #CDE7DB;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#2C6E58;font-weight:700">Ready to advance</div>
+          <div style="margin:8px 0 6px"><span style="font-size:40px;font-weight:700;color:#2E7D5B;letter-spacing:-.02em;font-variant-numeric:tabular-nums">{len(ready0)}</span><span style="font-size:17px;color:#7FB49C;font-weight:600"> / {len(zeroReq)}</span></div>
+          <div class="muted" style="line-height:1.5">requests at 0% already have a description, a lead and a target date — ready to move to 25%.</div>
+        </div>
+        {lead_unassigned_card(lead_but_unassigned)}
       </div>
     </div>
 
@@ -1685,10 +1690,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
     <div class="grid2 mt16">
       <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
-        {lead_unassigned_card(lead_but_unassigned)}
-      </div>
+      <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
     </div>
 
     {dqsec(3, 'Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
