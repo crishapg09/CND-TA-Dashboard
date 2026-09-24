@@ -178,7 +178,8 @@ def hero(bg, border, labelc, value, valuec, label, body, bodyc):
             f'<div class="heroval" style="color:{valuec}">{value}</div>'
             f'<div class="herobody" style="color:{bodyc}">{body}</div></div>')
 
-def req_table(title, rows, metric_label, days_color, footer='', cols=None):
+def req_table(title, rows, metric_label, days_color, footer='', cols=None, row_attrs=None):
+    """row_attrs(r) -> extra HTML attributes for a row (used to filter it)."""
     cols = cols or ['Case', 'Country', 'Description', 'Thematic area', 'Exp. completion', 'Status', 'State', 'TA lead', metric_label]
     head = ''.join(f'<div class="{"r" if h==cols[-1] else ""}">{esc(h)}</div>' for h in cols)
     body = ''
@@ -188,7 +189,8 @@ def req_table(title, rows, metric_label, days_color, footer='', cols=None):
         sbg, sfg = ('#E7EEF3', '#0B5A8A') if r['cl'] else ('#E6F0EA', '#2E7D5B')
         lead = r['lead'] or '— none —'
         leadc = '#43586B' if r['lead'] else '#C0453F'
-        body += (f'<div class="trow">'
+        extra = (' ' + row_attrs(r)) if row_attrs else ''
+        body += (f'<div class="trow"{extra}>'
                  f'<div class="tid">{esc(r["id"])}</div>'
                  f'<div class="tclip">{esc(r["office"] or "—")}</div>'
                  f'<div class="tclip muted" title="{esc(r.get("full") or r.get("desc") or "")}">{esc(r.get("full") or r.get("desc") or "—")}</div>'
@@ -536,8 +538,8 @@ ready0 = [c for c in zeroReq if c['hd'] and c['lead'] and c['xc'] is not None]
 # stalled ones (no progress 30+ days) as an orange slice. Only 0% requests are
 # charted. An Unassigned request has no lead and so no thematic area; those are
 # covered by Setup status and Time in setup instead.
-SETUP_SEGS = [('stalled', 'Stalled (no progress 30+ days)', '#CD6A2E'),
-              ('moving', 'Not stalled', '#9CC6E0')]
+SETUP_SEGS = [('stalled', 'stalled (no progress 30+ days)', '#CD6A2E'),
+              ('moving', 'not stalled', '#9CC6E0')]
 _sa = defaultdict(lambda: {'stalled': 0, 'moving': 0})
 for c in zeroReq:
     _sa[c['area']]['stalled' if is_stalled(c) else 'moving'] += 1
@@ -545,26 +547,37 @@ setup_area_rows = sorted(_sa.items(), key=lambda kv: (-sum(kv[1].values()), kv[0
 
 
 def setup_area_chart(rows, label_w=340):
-    """Stacked bar per thematic area. Labels wrap rather than truncate."""
+    """Stacked bar per thematic area. Labels wrap rather than truncate.
+    Each segment, and each area name, filters the Received & in review table
+    below to those requests and scrolls to it (see filterRecv in the page JS)."""
     if not rows:
         return '<div class="muted">No requests at 0%.</div>'
     used = [k for k, _, _ in SETUP_SEGS if any(v[k] for _, v in rows)]
-    legend = ''.join(f'<div class="lg"><span class="lgdot" style="background:{col}"></span>{lab}</div>'
-                     for k, lab, col in SETUP_SEGS if k in used)
+    legend = ('<span class="sllabel">Requests at 0%:</span>'
+              + ''.join(f'<div class="lg"><span class="lgdot" style="background:{col}"></span>{lab}</div>'
+                        for k, lab, col in SETUP_SEGS if k in used))
     mx = max(sum(v.values()) for _, v in rows) or 1
-    out = f'<div class="legend" style="margin-bottom:14px">{legend}</div>'
+    out = f'<div class="legend" style="margin-bottom:14px;align-items:center">{legend}</div>'
+
+    def hit(area, kind, n, desc):
+        return (f'data-area="{esc(area)}" data-kind="{kind}" data-n="{n}" data-desc="{esc(desc)}" '
+                f'role="button" tabindex="0" onclick="filterRecv(this)" '
+                f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();filterRecv(this);}}" '
+                f'onmouseenter="setupTip(event,this)" onmousemove="mapTipMove(event)" onmouseleave="mapTipHide()"')
+
     for area, v in rows:
         tot = sum(v.values())
         st = v['stalled']
         segs = ''.join(
-            f'<span title="{esc(lab)}: {v[k]}" style="width:{100 * v[k] / mx:.2f}%;background:{col}"></span>'
+            f'<span class="sa-seg" {hit(area, k, v[k], lab)} '
+            f'style="width:{100 * v[k] / mx:.2f}%;background:{col}"></span>'
             for k, lab, col in SETUP_SEGS if v[k])
         note = (f'<span style="color:#CD6A2E;font-weight:700">{st} stalled</span>' if st
                 else '<span style="color:#9AA7B2">none stalled</span>')
         # label column is up to label_w wide, shrinking on narrow screens
         out += (f'<div class="blrow" style="grid-template-columns:minmax(96px,{label_w}px) minmax(40px,1fr) 112px;margin-bottom:11px">'
-                f'<div class="bllabel" style="white-space:normal;overflow:visible;line-height:1.3">{esc(area)}</div>'
-                f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px">'
+                f'<div class="bllabel sa-lbl" {hit(area, "all", tot, "at 0%")} style="white-space:normal;overflow:visible;line-height:1.3">{esc(area)}</div>'
+                f'<div class="track" style="height:16px;background:#EEF2F6;border-radius:6px">'
                 f'<div class="bar" style="height:100%">{segs}</div></div>'
                 f'<div class="bln" style="font-size:12px"><b style="color:#0F2238">{tot}</b> &middot; {note}</div></div>')
     return out
@@ -672,8 +685,12 @@ _dqhead = ['Case', 'Country', 'Description', 'Thematic area', 'Exp. completion',
 _recv_rows = sorted(setupSet, key=lambda c: -stall_days(c))
 for c in _recv_rows:
     c['_m'] = str(stall_days(c)) + 'd'
-recv_tbl = req_table('Received & in review — Unassigned · 0%', _recv_rows[:80], 'Days in stage', '#CD6A2E',
-                     cols=_dqhead + ['Days in stage'])
+# Not capped: the "At 0%, by thematic area" chart filters this table, so every
+# setup request must be in it for the filtered counts to match the bars.
+recv_tbl = req_table('Received & in review — Unassigned · 0%', _recv_rows, 'Days in stage', '#CD6A2E',
+                     cols=_dqhead + ['Days in stage'],
+                     row_attrs=lambda c: (f'data-area="{esc(c["area"])}" data-st="{esc(c["status"])}" '
+                                          f'data-stalled="{1 if is_stalled(c) else 0}"'))
 for c in dq_overdue:
     c['_m'] = '+' + str(round(TODAY - c['xc'])) + 'd'
 over_tbl = req_table('Overdue — active requests past their target date', dq_overdue[:80], 'Days over', '#C0453F',
@@ -1290,6 +1307,14 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .grid3 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr)); gap:16px; align-items:stretch; }}
   .grid13 {{ display:grid; grid-template-columns:1fr 2fr; gap:16px; align-items:stretch; }}
   @media (max-width:720px) {{ .grid13 {{ grid-template-columns:1fr; }} }}
+  /* clickable "At 0%, by thematic area" bars -> filter the table below */
+  .sa-seg {{ cursor:pointer; transition:filter .12s; }}
+  .sa-seg:hover, .sa-seg:focus-visible {{ filter:brightness(.88); outline:none; }}
+  .sa-lbl {{ cursor:pointer; }}
+  .sa-lbl:hover, .sa-lbl:focus-visible {{ color:#0B5A8A; text-decoration:underline; outline:none; }}
+  .dqfilter {{ align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:16px; padding:10px 14px; border-radius:9px; background:#EAF3FA; border:1px solid #CFE2F0; font-size:12.5px; color:#0F2238; transition:box-shadow .3s; }}
+  .dqfilter.flash {{ box-shadow:0 0 0 4px rgba(11,111,164,.25); }}
+  .dqfilter-x {{ cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; padding:5px 11px; border-radius:7px; border:1px solid #B9D3E6; background:#fff; color:#0B5A8A; }}
   .grid31 {{ display:grid; grid-template-columns:3fr 1fr; gap:16px; align-items:stretch; }}
   @media (max-width:900px) {{ .grid31 {{ grid-template-columns:1fr; }} }}
   .grid2 > *, .grid3 > *, .grid13 > *, .grid31 > * {{ height:100%; }}
@@ -1709,7 +1734,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 
     {dqsec(4, 'All requests — filter and browse', 'One table for the whole lifecycle. Switch between received & in review, overdue, and completed.')}
     <div class="dqtogs"><button class="dtoggle dqtog on" data-dqt="recv" onclick="showDqt('recv')">Received &amp; in review <b>{len(setupSet)}</b></button><button class="dtoggle dqtog" data-dqt="over" onclick="showDqt('over')">Overdue <b>{len(dq_overdue)}</b></button><button class="dtoggle dqtog" data-dqt="done" onclick="showDqt('done')">Completed <b>{len(completedC)}</b></button></div>
-    <div class="dqtblbox" data-dqt="recv">{recv_tbl}</div>
+    <div class="dqtblbox" data-dqt="recv"><div class="dqfilter" style="display:none"><span class="dqfilter-txt"></span><button class="dqfilter-x" onclick="clearRecvFilter()">Clear filter &times;</button></div>{recv_tbl}</div>
     <div class="dqtblbox" data-dqt="over" style="display:none">{over_tbl}</div>
     <div class="dqtblbox" data-dqt="done" style="display:none">{done_tbl}</div>
   </div>
@@ -1761,7 +1786,47 @@ function showTbl(id){{
   var ts=document.querySelectorAll('.dtoggle');
   for(var j=0;j<ts.length;j++){{ if(ts[j].getAttribute('data-tbl')===id){{ ts[j].classList.add('on'); }} else {{ ts[j].classList.remove('on'); }} }}
 }}
+/* "At 0%, by thematic area": hover a segment or area name for a tooltip; click
+   to filter the Received & in review table below to those requests. */
+function setupTip(e,el){{
+  var t=document.getElementById('maptip'); if(!t) return;
+  var n=el.getAttribute('data-n'), k=el.getAttribute('data-kind'), d=el.getAttribute('data-desc');
+  var line=(k==='all') ? (n+' request'+(n==='1'?'':'s')+' at 0%') : (n+' at 0%, '+d);
+  t.innerHTML='<div class="maptip-title"></div><div class="maptip-sub" style="margin:4px 0 8px">'+line+'</div>'
+    +'<div style="font-weight:700;color:#8FD0F2">See these requests &darr;</div>';
+  t.firstChild.textContent=el.getAttribute('data-area');
+  t.style.display='block'; mapTipMove(e);
+}}
+function clearRecvFilter(){{
+  var box=document.querySelector('.dqtblbox[data-dqt="recv"]'); if(!box) return;
+  var rs=box.querySelectorAll('.trow');
+  for(var i=0;i<rs.length;i++){{ rs[i].style.display=''; }}
+  var f=box.querySelector('.dqfilter'); if(f){{ f.style.display='none'; }}
+}}
+function filterRecv(el){{
+  mapTipHide();
+  var area=el.getAttribute('data-area'), kind=el.getAttribute('data-kind');
+  showDqt('recv');
+  var box=document.querySelector('.dqtblbox[data-dqt="recv"]'); if(!box) return;
+  var rs=box.querySelectorAll('.trow'), n=0;
+  for(var i=0;i<rs.length;i++){{
+    var r=rs[i];
+    var ok=r.getAttribute('data-area')===area && r.getAttribute('data-st')==='0%'
+      && (kind==='all' || (kind==='stalled')===(r.getAttribute('data-stalled')==='1'));
+    r.style.display=ok?'':'none'; if(ok){{ n++; }}
+  }}
+  var what=(kind==='all') ? 'at 0%' : (kind==='stalled' ? 'at 0% and stalled (no progress 30+ days)' : 'at 0%, not stalled');
+  var f=box.querySelector('.dqfilter'), txt=f.querySelector('.dqfilter-txt');
+  txt.innerHTML='Showing <b>'+n+'</b> request'+(n===1?'':'s')+' '+what+' in <b></b>';
+  txt.lastChild.textContent=area;
+  f.style.display='flex';
+  var body=box.querySelector('.tbody'); if(body){{ body.scrollTop=0; }}
+  var y=box.getBoundingClientRect().top+window.pageYOffset-80;
+  window.scrollTo({{top:y, behavior:'smooth'}});
+  f.classList.add('flash'); setTimeout(function(){{ f.classList.remove('flash'); }},1200);
+}}
 function showDqt(id){{
+  clearRecvFilter();   // switching the table's own toggle drops any chart filter
   var bs=document.querySelectorAll('.dqtblbox');
   for(var i=0;i<bs.length;i++){{ bs[i].style.display = bs[i].getAttribute('data-dqt')===id ? 'block' : 'none'; }}
   var ts=document.querySelectorAll('.dqtog');
