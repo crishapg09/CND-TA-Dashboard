@@ -89,7 +89,9 @@ def _has_details(v):
 #
 # Add an entry only when the two names are confirmed to be the same person.
 NAME_ALIASES = {
-    'Maria Del Carmen Porras Perez Guerrero': 'Maria Porras',
+    'Maria Del Carmen Porras Perez Guerrero': 'Maria Del Carmen Porras Gomez',
+    # The export uses both spellings; the long form is by far the more common.
+    'David Karel Emmanuel Knaute': 'David Knaute',
 }
 
 
