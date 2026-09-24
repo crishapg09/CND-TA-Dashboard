@@ -1746,7 +1746,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       </div>
       <div class="card">
         <div class="cardtitle" style="margin-bottom:8px">Completed, not closed</div>
-        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:{'#E0A21E' if done_open else '#2E7D5B'}">{len(done_open)}</div><div class="muted">at 100% but still not Closed in the system status</div></div>
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#2E7D5B">{len(done_open)}</div><div class="muted">at 100% but still not Closed in the system status</div></div>
         {f'<div style="font-size:12px;color:#5B7186;margin-top:10px;padding-top:10px;border-top:1px solid #F1F4F7">System status: {done_open_breakdown}</div>' if done_open else ''}
       </div>
     </div>
