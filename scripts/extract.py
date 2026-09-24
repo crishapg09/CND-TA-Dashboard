@@ -53,7 +53,7 @@ C_SHORT, C_DESC, C_OBJ, C_MODALITY = 8, 9, 10, 12
 C_PRACTICE, C_OFFER, C_LEAD = 13, 14, 15
 C_COLLAB, C_STATUS = 16, 17           # Collaborators: comma-separated staff names
 C_CREATED, C_OPENED, C_UPDATED, C_RESOLVED, C_CLOSED = 18, 19, 20, 21, 22
-C_RESOLUTION, C_STATE = 23, 24  # State is captured in the export but unused here
+C_RESOLUTION, C_STATE = 23, 24  # State = ServiceNow system status (New/Open/Resolved/Closed…)
 C_DETAILS = 25  # rich-text "Details/Description" appended to the export
 
 EPOCH = datetime.datetime(1899, 12, 30)  # Excel serial-date origin
@@ -154,6 +154,9 @@ def build(r):
         'xs': serial(r[C_XS]), 'xc': serial(r[C_XC]),
         'cr': serial(r[C_CREATED]), 'op': serial(r[C_OPENED]), 'up': serial(r[C_UPDATED]),
         'rs': serial(r[C_RESOLVED]), 'cl': serial(r[C_CLOSED]),
+        # system status, separate from Implementation Status: a request can be
+        # at 100% yet still New/Open here if nobody closed it in ServiceNow
+        'state': s(r[C_STATE]),
         'hd': 1 if r[C_DESC] else 0, 'ho': 1 if r[C_OBJ] else 0,
         'hdd': _has_details(r[C_DETAILS]),
     }

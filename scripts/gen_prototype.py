@@ -626,6 +626,24 @@ for c in co:
     if k in seen: dup += 1
     else: seen.add(k)
 
+# "Data flags" card: the delivery checks plus possible duplicates. Duplicates
+# are checked across all requests, not only those in delivery, so the line says so.
+data_flags = delivery_flags + [
+    (dup, 'Possible duplicates', 'across all requests — same "requested-for" and short description as an earlier request', '#E0A21E'),
+]
+
+# Completed but not closed: Implementation Status is 100% but the ServiceNow
+# system State is not Closed. State is the source; the Closed date stands in
+# for exports extracted before State was captured (the two always agree).
+def _state(c):
+    return c.get('state') or ('Closed' if c['cl'] else 'Not closed')
+done_open = [c for c in co if c['status'] == '100%' and _state(c) != 'Closed']
+_so = ['New', 'Open', 'Awaiting Info', 'Resolved']
+_sc = Counter(_state(c) for c in done_open)
+done_open_breakdown = ' &middot; '.join(
+    f'{esc(k)} <b style="color:#0F2238">{_sc[k]}</b>'
+    for k in _so + sorted(k for k in _sc if k not in _so) if _sc.get(k))
+
 # Status and assignment disagree: a lead is named in "Assigned to", but the
 # implementation status still reads Unassigned. The status has not caught up
 # with the assignment (it should normally have moved to 0%).
@@ -1315,6 +1333,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .dqfilter {{ align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:16px; padding:10px 14px; border-radius:9px; background:#EAF3FA; border:1px solid #CFE2F0; font-size:12.5px; color:#0F2238; transition:box-shadow .3s; }}
   .dqfilter.flash {{ box-shadow:0 0 0 4px rgba(11,111,164,.25); }}
   .dqfilter-x {{ cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; padding:5px 11px; border-radius:7px; border:1px solid #B9D3E6; background:#fff; color:#0B5A8A; }}
+  .checkgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr)); column-gap:36px; }}
   .grid31 {{ display:grid; grid-template-columns:3fr 1fr; gap:16px; align-items:stretch; }}
   @media (max-width:900px) {{ .grid31 {{ grid-template-columns:1fr; }} }}
   .grid2 > *, .grid3 > *, .grid13 > *, .grid31 > * {{ height:100%; }}
@@ -1713,10 +1732,7 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       </div>
     </div>
     <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
-    <div class="grid2 mt16">
-      <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
-      <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
-    </div>
+    <div class="card mt16"><div class="cardtitle">Data flags</div><div class="checkgrid">{checkitems(data_flags)}</div></div>
 
     {dqsec(3, 'Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;align-items:start">
@@ -1727,6 +1743,11 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
       <div class="card">
         <div class="cardtitle" style="margin-bottom:8px">Upcoming closure (next 30 days)</div>
         <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div>
+      </div>
+      <div class="card">
+        <div class="cardtitle" style="margin-bottom:8px">Completed, not closed</div>
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:{'#E0A21E' if done_open else '#2E7D5B'}">{len(done_open)}</div><div class="muted">at 100% but still not Closed in the system status</div></div>
+        {f'<div style="font-size:12px;color:#5B7186;margin-top:10px;padding-top:10px;border-top:1px solid #F1F4F7">System status: {done_open_breakdown}</div>' if done_open else ''}
       </div>
     </div>
     {overdue_sev_card}
