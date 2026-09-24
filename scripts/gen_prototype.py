@@ -667,11 +667,6 @@ data_flags = delivery_flags + [
 def _state(c):
     return c.get('state') or ('Closed' if c['cl'] else 'Not closed')
 done_open = [c for c in co if c['status'] == '100%' and _state(c) != 'Closed']
-_so = ['New', 'Open', 'Awaiting Info', 'Resolved']
-_sc = Counter(_state(c) for c in done_open)
-done_open_breakdown = ' &middot; '.join(
-    f'{esc(k)} <b style="color:#0F2238">{_sc[k]}</b>'
-    for k in _so + sorted(k for k in _sc if k not in _so) if _sc.get(k))
 
 # Status and assignment disagree: a lead is named in "Assigned to", but the
 # implementation status still reads Unassigned. The status has not caught up
@@ -1779,19 +1774,19 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div class="card mt16"><div class="cardtitle">Data flags</div><div class="checkgrid">{checkitems(data_flags)}</div></div>
 
     {dqsec(3, 'Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;align-items:start">
+    <!-- three cards of equal height, title and number on the same lines -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;align-items:stretch">
       <div class="card" style="background:#FBF0EF;border:1px solid #F0D2CF">
-        <div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#B0453F;font-weight:700">Overdue</div>
-        <div style="display:flex;align-items:baseline;gap:12px;margin-top:8px"><div style="font-size:44px;font-weight:700;color:#C0453F;line-height:1;font-variant-numeric:tabular-nums">{len(dq_overdue)}</div><div style="font-size:12.5px;color:#8A5450">active requests past their expected completion date.</div></div>
+        <div class="cardtitle" style="margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;color:#B0453F">Overdue</div>
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#C0453F;font-variant-numeric:tabular-nums">{len(dq_overdue)}</div><div class="muted" style="color:#8A5450">active requests past their expected completion date</div></div>
       </div>
       <div class="card">
         <div class="cardtitle" style="margin-bottom:8px">Upcoming closure (next 30 days)</div>
-        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div>
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E;font-variant-numeric:tabular-nums">{len(at_risk)}</div><div class="muted">due within 30 days and not yet complete</div></div>
       </div>
       <div class="card">
         <div class="cardtitle" style="margin-bottom:8px">Completed, not closed</div>
-        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#2E7D5B">{len(done_open)}</div><div class="muted">at 100% but still not Closed in the system status</div></div>
-        {f'<div style="font-size:12px;color:#5B7186;margin-top:10px;padding-top:10px;border-top:1px solid #F1F4F7">System status: {done_open_breakdown}</div>' if done_open else ''}
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#2E7D5B;font-variant-numeric:tabular-nums">{len(done_open)}</div><div class="muted">at 100% but still not Closed in the system status</div></div>
       </div>
     </div>
     {overdue_sev_card}
