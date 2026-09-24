@@ -531,6 +531,49 @@ unassigned_by_area = [(k, len(v)) for k, v in groupby_area([c for c in setupSet 
 zero_by_area = [(k, len(v)) for k, v in groupby_area([c for c in setupSet if c['status'] == '0%'])]
 zeroReq = [c for c in setupSet if c['status'] == '0%']
 ready0 = [c for c in zeroReq if c['hd'] and c['lead'] and c['xc'] is not None]
+
+# Merged "at 0% / stalled" chart: one bar per thematic area. A request stalled
+# at 0% is part of that area's at-0% count, so it is drawn as a highlighted
+# slice of the bar rather than as a second bar. A request can also stall while
+# still Unassigned (14+ days); that is not part of the at-0% count, so it gets
+# its own segment, and the legend shows it only when some exist.
+SETUP_SEGS = [('stalled0', 'Stalled at 0% (no progress 30+ days)', '#CD6A2E'),
+              ('moving0', 'At 0%, not stalled', '#9CC6E0'),
+              ('stalledU', 'Stalled while unassigned (14+ days)', '#E0A21E')]
+_sa = defaultdict(lambda: {'stalled0': 0, 'moving0': 0, 'stalledU': 0})
+for c in setupSet:
+    st = is_stalled(c)
+    if c['status'] == '0%':
+        _sa[c['area']]['stalled0' if st else 'moving0'] += 1
+    elif st:
+        _sa[c['area']]['stalledU'] += 1
+setup_area_rows = sorted(_sa.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))
+
+
+def setup_area_chart(rows, label_w=340):
+    """Stacked bar per thematic area. Labels wrap rather than truncate."""
+    if not rows:
+        return '<div class="muted">No requests in setup.</div>'
+    used = [k for k, _, _ in SETUP_SEGS if any(v[k] for _, v in rows)]
+    legend = ''.join(f'<div class="lg"><span class="lgdot" style="background:{col}"></span>{lab}</div>'
+                     for k, lab, col in SETUP_SEGS if k in used)
+    mx = max(sum(v.values()) for _, v in rows) or 1
+    out = f'<div class="legend" style="margin-bottom:14px">{legend}</div>'
+    for area, v in rows:
+        tot = sum(v.values())
+        stalled = v['stalled0'] + v['stalledU']
+        segs = ''.join(
+            f'<span title="{esc(lab)}: {v[k]}" style="width:{100 * v[k] / mx:.2f}%;background:{col}"></span>'
+            for k, lab, col in SETUP_SEGS if v[k])
+        note = (f'<span style="color:#CD6A2E;font-weight:700">{stalled} stalled</span>' if stalled
+                else '<span style="color:#9AA7B2">none stalled</span>')
+        # label column is up to label_w wide, shrinking on narrow screens
+        out += (f'<div class="blrow" style="grid-template-columns:minmax(96px,{label_w}px) minmax(40px,1fr) 112px;margin-bottom:11px">'
+                f'<div class="bllabel" style="white-space:normal;overflow:visible;line-height:1.3">{esc(area)}</div>'
+                f'<div class="track" style="height:12px;background:#EEF2F6;border-radius:6px">'
+                f'<div class="bar" style="height:100%">{segs}</div></div>'
+                f'<div class="bln" style="font-size:12px"><b style="color:#0F2238">{tot}</b> &middot; {note}</div></div>')
+    return out
 stalled_table_rows = sorted(stalledSetup, key=lambda c: -stall_days(c))[:12]
 for c in stalled_table_rows: c['_m'] = str(stall_days(c)) + 'd'
 at25 = [c for c in setupSet if c['status'] == '25%']
@@ -1230,7 +1273,9 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
   .grid3 {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr)); gap:16px; align-items:stretch; }}
   .grid13 {{ display:grid; grid-template-columns:1fr 2fr; gap:16px; align-items:stretch; }}
   @media (max-width:720px) {{ .grid13 {{ grid-template-columns:1fr; }} }}
-  .grid2 > *, .grid3 > *, .grid13 > * {{ height:100%; }}
+  .grid31 {{ display:grid; grid-template-columns:3fr 1fr; gap:16px; align-items:stretch; }}
+  @media (max-width:900px) {{ .grid31 {{ grid-template-columns:1fr; }} }}
+  .grid2 > *, .grid3 > *, .grid13 > *, .grid31 > * {{ height:100%; }}
   .mt16 {{ margin-top:16px; }}
 
   .legend {{ display:flex; flex-wrap:wrap; gap:10px 16px; margin:0 0 16px; }}
@@ -1602,17 +1647,16 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
 
     {dqsec(1, 'Received & in review', 'Unassigned · 0% — the concern here is stalling before delivery starts.')}
     <div class="grid2">
-      <div class="card"><div class="cardtitle">Setup funnel</div>{bucket_bars(setup_funnel, label_w=110)}</div>
+      <div class="card"><div class="cardtitle">Setup status</div>{bucket_bars(setup_funnel, label_w=110)}</div>
       <div class="card"><div class="cardtitle" style="margin-bottom:4px">Time in setup</div><div class="muted" style="margin-bottom:14px">Days since a request was received (Unassigned) or last updated (0%). Counted as <b>stalled</b> after 14 days while Unassigned, 30 days once at 0%.</div>{bucket_bars(aging, label_w=110)}</div>
     </div>
-    <div class="grid2 mt16">
-      <div class="card"><div class="cardtitle">Stalled in setup, by thematic area</div>{barlist(stalled_by_area, '#CD6A2E', '#F6E9DE', label_w=150)}</div>
-      <div class="card"><div class="cardtitle">At 0%, by thematic area</div>{barlist(zero_by_area, '#5BA3D0', label_w=150)}</div>
-    </div>
-    <div class="card mt16" style="background:#EEF7F2;border:1px solid #CDE7DB">
-      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#2C6E58;font-weight:700">Ready to advance</div>
-      <div style="margin:6px 0 4px"><span style="font-size:34px;font-weight:700;color:#2E7D5B;letter-spacing:-.02em;font-variant-numeric:tabular-nums">{len(ready0)}</span><span style="font-size:16px;color:#7FB49C;font-weight:600"> / {len(zeroReq)}</span></div>
-      <div class="muted">requests at 0% already have a description, a lead and a target date — ready to move to 25%.</div>
+    <div class="grid31 mt16">
+      <div class="card"><div class="cardtitle" style="margin-bottom:4px">At 0% and stalled, by thematic area</div><div class="muted" style="margin-bottom:14px">Each bar is an area&rsquo;s requests at 0%; the orange slice is the part with no progress for 30+ days.</div>{setup_area_chart(setup_area_rows)}</div>
+      <div class="card" style="background:#EEF7F2;border:1px solid #CDE7DB;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#2C6E58;font-weight:700">Ready to advance</div>
+        <div style="margin:8px 0 6px"><span style="font-size:40px;font-weight:700;color:#2E7D5B;letter-spacing:-.02em;font-variant-numeric:tabular-nums">{len(ready0)}</span><span style="font-size:17px;color:#7FB49C;font-weight:600"> / {len(zeroReq)}</span></div>
+        <div class="muted" style="line-height:1.5">requests at 0% already have a description, a lead and a target date — ready to move to 25%.</div>
+      </div>
     </div>
 
     {dqsec(2, 'Started & in delivery', '25% · 50% · 75% — the concern here is completeness and internal consistency of the record.')}
