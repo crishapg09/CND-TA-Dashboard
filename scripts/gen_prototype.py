@@ -612,6 +612,28 @@ for c in co:
     if k in seen: dup += 1
     else: seen.add(k)
 
+# Status and assignment disagree: a lead is named in "Assigned to", but the
+# implementation status still reads Unassigned. The status has not caught up
+# with the assignment (it should normally have moved to 0%).
+lead_but_unassigned = sorted((c for c in co if c['status'] == 'Unassigned' and c['lead']),
+                             key=lambda c: c['id'])
+
+
+def lead_unassigned_card(rows, show=8):
+    n = len(rows)
+    color = '#E0A21E' if n else '#2E7D5B'
+    items = ''.join(
+        f'<div style="display:grid;grid-template-columns:96px 1fr;gap:10px;padding:6px 0;border-top:1px solid #F1F4F7;font-size:12px">'
+        f'<span style="font-weight:700;color:#0B5A8A;font-variant-numeric:tabular-nums">{esc(c["id"])}</span>'
+        f'<span style="color:#43586B">{esc(c["lead"])}<span style="color:#9AA7B2"> &middot; {esc(c["area"])}</span></span></div>'
+        for c in rows[:show])
+    more = f'<div class="muted" style="margin-top:6px">+{n - show} more</div>' if n > show else ''
+    return (f'<div class="card"><div class="cardtitle">Lead assigned, status still Unassigned</div>'
+            f'<div style="display:flex;align-items:baseline;gap:10px">'
+            f'<div class="score" style="color:{color}">{n}</div>'
+            f'<div class="muted">requests have a lead in &ldquo;Assigned to&rdquo; but their implementation status was never moved off Unassigned</div></div>'
+            f'{"<div style=margin-top:12px>" + items + more + "</div>" if n else ""}</div>')
+
 # stage 3
 dq_overdue = sorted([c for c in activeCO if c['xc'] is not None and c['xc'] < TODAY], key=lambda c: -(TODAY - c['xc']))
 for c in dq_overdue: c['_m'] = '+' + str(round(TODAY - c['xc'])) + 'd'
@@ -1663,7 +1685,10 @@ PAGE = f'''<!-- @dsCard group="Dashboards" -->
     <div class="card mt16"><div class="cardtitle">Delivery quality by thematic area — % passing every check</div>{quality_rows(quality_by_area)}</div>
     <div class="grid2 mt16">
       <div class="card"><div class="cardtitle">Delivery flags</div>{checkitems(delivery_flags)}</div>
-      <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card"><div class="cardtitle">Possible duplicates</div><div style="display:flex;align-items:baseline;gap:10px"><div class="score" style="color:#E0A21E">{dup}</div><div class="muted">requests share a "requested-for + short description" with an earlier request</div></div></div>
+        {lead_unassigned_card(lead_but_unassigned)}
+      </div>
     </div>
 
     {dqsec(3, 'Overdue, at-risk & closure', 'Active requests past or near their target date, and completed work not yet closed out.')}
